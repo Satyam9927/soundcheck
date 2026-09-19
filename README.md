@@ -3,8 +3,9 @@
 **Proof-or-counterexample for declarative security policy.**
 
 Soundcheck takes a policy artifact, such as an API-gateway config, and proves security
-invariants over it. It returns either a machine-checkable proof that no violating request
-exists, or a concrete counterexample expressed in the config's own vocabulary.
+invariants over it. It returns a solver-backed verdict that no violating request exists
+within the modeled semantics, or a concrete counterexample expressed in the config's
+own vocabulary.
 
 ```
 $ soundcheck verify kong.yaml
@@ -16,10 +17,10 @@ $ echo $?
 3
 ```
 
-The reasoning is exact rather than heuristic. The question is discharged by an SMT solver
-over the full input space, so a `PROVED` result means there is no such request, not "we
-didn't find one." Recognising which plugins provide authentication is a known-name lookup,
-and that lookup is the one place judgement enters. Everything after it is solving.
+The reasoning is symbolic rather than heuristic. The question is discharged by an SMT
+solver over the full modeled input space, so a `PROVED` result means there is no such
+request under Soundcheck's supported semantics, not "we didn't find one." Unsupported or
+uncertain behavior is reported rather than silently treated as verified.
 
 ## Why this exists
 
@@ -32,11 +33,11 @@ catching typos and useless for establishing absence. The interesting property of
 is universally quantified: *for all requests, X is denied.* You cannot sample your way to
 that.
 
-Soundcheck's bet is that this particular problem is decidable and therefore worth closing
-completely rather than approximating. Declarative policy reduces to a finite decision
-function, `(principal, action, resource, context) → Allow | Deny`. Reasoning over it is an
-SMT query that terminates with a definite answer. There is no proof search that might fail
-to converge, and no place for a model's confidence to stand in for a guarantee.
+Soundcheck's bet is that a valuable subset of this problem can be modeled in decidable
+logic and closed with automated reasoning. Declarative policy reduces to a finite decision
+function, `(principal, action, resource, context) → Allow | Deny`. Results distinguish
+proved, violated, vacuous, inconsistent, and unknown, leaving no place for a model's
+confidence to stand in for a guarantee.
 
 That makes it a natural fit for checking AI-generated output: the generator can be
 unreliable so long as the checker is not.
@@ -60,14 +61,15 @@ unreliable so long as the checker is not.
 3. **Encode.** Emit the policy's decision logic together with the *negation* of the
    property as SMT-LIB2: does there exist a request this config allows but the property
    forbids?
-4. **Solve.** Hand it to Z3. `UNSAT` means no violating request exists, which is a proof.
-   `SAT` means the satisfying assignment is itself a concrete counterexample.
+4. **Solve.** Hand it to Z3. `UNSAT` means no violating request exists in the modeled
+   semantics. `SAT` means the satisfying assignment is itself a concrete counterexample.
 5. **Lift.** Translate the SMT model back into the connector's vocabulary, so the output
    names a route and a service rather than a bitvector.
 
-`--emit-smt PATH` keeps the generated query as an audit artifact. It is plain SMT-LIB2, so
-the proof obligation can be re-checked independently, by a different solver if you like,
-and nothing about the result requires trusting Soundcheck.
+`--emit-smt PATH` keeps a single-property query as an audit artifact. It is plain SMT-LIB2,
+so the solver obligation can be re-checked independently. The result still relies on the
+fidelity of Soundcheck's Kong model and encoder; multi-query contracts do not yet emit a
+complete evidence bundle.
 
 Multiple frontends, one IR, one solver backend, counterexamples lifted back per target.
 The core is the reusable asset and connectors stay thin.
@@ -383,26 +385,22 @@ Connectors depend on core. **Core never depends on connectors.**
 
 ## Roadmap
 
-**Near term.** `admin-api-not-reachable`, the last of the four planned templates, which
-needs a new symbolic dimension (source zone) and the IR's so-far-unused `context` field.
-Route ranking for regex paths, so those configs stop falling back to a flat union, most
-likely by asking the solver about language inclusion rather than inventing a number.
-Richer prefix ranking too, so fewer pairs fall back to a tie.
+The immediate focus is Kong-first depth: demonstrate the frozen MCP workflow end to end,
+publish a versioned assurance profile, expand the paired contract catalogue, improve
+semantic coverage, and differentially validate the model against real Kong behavior.
+Configuration equivalence, CI/PR productization, and reproducible evidence follow.
 
-**After that.** A reusable GitHub Action with PR annotations, then connector #2 for
-app-level authz and tenant isolation, which is expected to refine the IR from v0 to v1.
-Kubernetes RBAC follows.
-
-**Phase 2.** A generate-verify-repair loop driven by the same JSON counterexample and the
-shipped frozen-contract boundary: the loop may change the config, never the property.
-No weakening the spec to make failing output pass.
+Soundcheck remains a model-independent verifier. External agents and optional downstream
+orchestrators may generate or repair configurations through its interfaces, but model
+clients and training infrastructure are not part of the verification core. Additional
+connectors follow after the Kong verifier is ready for public promotion.
 
 ## Design notes
 
 Written in OCaml because this is compiler work, parse and lower and encode and lift, which
-is OCaml's home turf. Z3 is the proof kernel, reached through SMT-LIB2 text rather than
-language bindings. That keeps the backend swappable, since CVC5 speaks the same dialect,
-and it makes every proof obligation an artifact you can read.
+is OCaml's home turf. Z3 is the automated solver backend, reached through SMT-LIB2 text
+rather than language bindings. That keeps the boundary inspectable and replaceable, and
+makes single-property obligations artifacts you can read.
 
 Interactive theorem proving is deliberately avoided. The design premise is that this
 problem class does not need it.

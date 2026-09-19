@@ -3,7 +3,7 @@
 > Verified AI output for declarative security policy. Soundcheck takes a
 > declarative policy artifact (API-gateway config, K8s RBAC, …) — whether
 > hand-written or AI-generated — and **proves** security invariants over it,
-> returning either a machine-checkable proof or a concrete counterexample.
+> returning a solver-backed verdict or a concrete counterexample.
 
 The name plays on **soundness** (a sound analysis reports no false negatives —
 our core promise) and the everyday "sound check".
@@ -22,9 +22,9 @@ Shape A (verified computation over arbitrary program semantics):
 
 - **Shape B (ours):** declarative policies reduce to a finite **decision
   function** `(principal, action, resource, context) -> Allow | Deny`. Reasoning
-  is **decidable** — an SMT query is often *complete*. The verification loop
-  **always terminates** with a proof *or* a concrete counterexample. No
-  proof-search convergence problem.
+  is designed around a **decidable** SMT fragment rather than open-ended proof
+  search. Results are explicit: proved, violated, vacuous, inconsistent, or
+  unknown.
 - **Shape A (not ours, yet):** proofs over loops/recursion; undecidable in
   general; needs proof search that may not converge. This is Imandra's turf.
 
@@ -56,12 +56,12 @@ to each frontend's vocabulary.
 
 - **Language: OCaml.** Shape B is compiler/analysis/tooling work (parse → IR →
   encode → orchestrate solver → lift counterexamples), OCaml's home turf.
-  Lean/Rocq matter only for *interactive theorem proving*, which we deliberately
-  avoid. Z3 is our prover kernel; we don't need Lean's.
-- **SMT backend: direct Z3** (via OCaml bindings), not Why3. We do finite-domain
-  constraint solving, not verification-condition generation over imperative
-  programs. This mirrors AWS Zelkova. Reversible — it lives behind the
-  `encode/` + `solve/` boundary.
+  Automated SMT is the pragmatic fit for the current decidable problem class;
+  interactive proof assistants are not part of the runtime architecture.
+- **SMT backend: Z3 CLI via SMT-LIB2 text**, not language bindings or Why3. We
+  do finite-domain constraint solving, not verification-condition generation
+  over imperative programs. The boundary is inspectable and replaceable behind
+  the encoder and solver modules.
 - **Monorepo, shared core + thin connectors.** Connectors depend on core; core
   NEVER depends on connectors.
 
@@ -95,10 +95,11 @@ to each frontend's vocabulary.
 1. **Extract the IR, don't predict it.** Build Kong end-to-end first and extract
    the IR from that reality (v0). Let connector #2 (tenant isolation) *refine* it
    to v1. No speculative universal IR up front.
-2. **Ship the verifier before the AI loop.** "Point it at an existing config, get
-   proof-or-counterexample" has standalone value with zero AI, is demoable/
-   sellable, and builds the labeled corpus. The AI generation loop wraps the
-   verifier as a second act.
+2. **Keep verification model-independent.** "Point it at an existing config,
+   get a formal verdict or counterexample" has standalone value with zero AI.
+   External agents or optional downstream orchestrators may consume Soundcheck;
+   model clients, prompts, credentials, and nondeterminism do not belong in the
+   verification core.
 
 ## Other non-negotiables
 
@@ -152,17 +153,18 @@ IDE plugin, or CI all plug in via whichever surface fits.
 - `mcp/` lives **in this monorepo** (sibling of `cli/`), ideally as a subcommand
   of the single `soundcheck` binary (`soundcheck verify` vs `soundcheck mcp`) —
   one distributable, no extra runtime.
-- The P1 **CEGIS loop** consumes the same JSON counterexample to drive
-  regenerate-until-proved.
+- External repair loops consume the same JSON counterexample to drive
+  regenerate-until-proved without weakening the frozen contract.
 
-**Build order for the AI interface:** (1) `--format json` on the verifier →
-(2) `mcp/` `verify` tool (all-OCaml first; thin TS wrapper over the JSON CLI as
-fallback) → (3) CI-gate example (GitHub Action) → then more property templates →
-P1 CEGIS loop.
+The JSON, MCP, functionality-contract, and structural spec-freeze foundations
+are shipped. The active Kong-first sequence is tracked in Codex project memory;
+the public near-term direction is summarized in `README.md`.
 
 ---
 
-## Repo structure
+## Conceptual structure
+
+This describes architectural ownership, not an exact filesystem listing.
 
 ```
 core/            shared engine (fat, valuable)
@@ -177,7 +179,6 @@ connectors/      thin frontends (parse→IR, lift counterexample→config)
   app_authz/     SECOND (tenant isolation)
   k8s_rbac/      later
   opa_rego/      later (decidable fragment only)
-loop/            AI generate+verify+CEGIS (target-agnostic; PHASE 2)
 evidence/        audit report emitter (proof + provenance + version hash)
 cli/             `verify <config> --policy <p>`  (ship this first)
 api/             service interface (later)
@@ -186,20 +187,26 @@ bench/           labeled corpora, mutation tests, regression
 
 ## Sequencing
 
-- **P0 — Kong verifier, no AI.** IR v0 from Kong; ~4 invariant templates
-  (public-route-has-auth, admin-API-not-reachable, no-shadowed-routes,
-  rate-limit-on-public); counterexample lifting; `cli verify`. Ship it.
-- **P1 — AI loop on top** (NL intent → Kong deck → verify → CEGIS feedback).
-- **P2 — connector #2: app authz / tenant isolation** (refines IR v0 → v1).
-- **P3 — evidence reporting, more templates, K8s RBAC / OPA connectors.**
+P0 Kong verification and the P1 verified-agent interface are shipped. Current
+work deepens Kong coverage: an end-to-end frozen workflow, a versioned assurance
+profile, more paired contracts, semantic conformance, configuration equivalence,
+CI productization, and reproducible evidence. Connector #2 follows only after
+the Kong verifier is ready for public promotion.
 
 ---
 
 ## Working conventions
 
-Global preferences (in `~/.claude/CLAUDE.md`) apply. Project-specific notes:
-
-- Sole contributor is Sourav Kumar; no Claude attribution in commits/PRs.
-- Branch by change type (`feat/`, `fix/`, `chore/`, `docs/`); never commit to
-  `main` directly; commit/push only when asked; Sourav opens/merges PRs.
-- `CLAUDE.md` is tracked in the repo; local Claude settings are gitignored.
+- For substantial work, read the Soundcheck Codex memory index at
+  `~/.codex/memories/projects/-Users-souravkumar-program-analysis-Soundcheck/MEMORY.md`.
+  That is the active project tracker; do not use or update the retired Claude memory.
+- Prefix OCaml commands with `eval $(opam env)`.
+- Work on a focused `feat/`, `fix/`, `docs/`, or `chore/` branch; never commit
+  directly to `main`.
+- Pause after meaningful edits for review before building or committing.
+- Every commit must independently pass `dune test` in a clean throwaway worktree.
+- Keep commit messages concise, and fetch/prune remote refs before pushing.
+- Sourav opens and merges pull requests unless he explicitly delegates that action.
+- Do not add AI-agent attribution, generated-by notices, or `Co-Authored-By`
+  trailers unless explicitly requested.
+- Preserve unrelated user changes.
