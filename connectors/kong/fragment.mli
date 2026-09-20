@@ -3,9 +3,9 @@
     Literal-prefix and regex paths are both modelled, so what remains outside the
     fragment is exactly what {!Regex.parse} refuses — constructs that are not
     regular, or whose language we decline to guess. Root-level plugins carrying
-    explicit route, service, or consumer relationships are also rejected until
-    flattened relationship resolution is modeled. Such a config reports [unknown]
-    rather than being approximated. *)
+    consumer relationships or non-string foreign keys are also rejected, as are
+    top-level routes whose service references have not yet been resolved. Such a
+    config reports [unknown] rather than being approximated. *)
 
 type finding = {
   service : string;
@@ -27,5 +27,5 @@ val findings : Ast.config -> finding list
 
 val check : Ast.config -> (unit, string) result
 (** [Ok ()] if the whole config is inside the supported fragment, otherwise
-    [Error reason] naming the first unsupported scoped plugin or every offending
-    regex route. *)
+    [Error reason] naming top-level routing, the first unsupported plugin scope,
+    or every offending regex route. *)

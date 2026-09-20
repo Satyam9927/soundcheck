@@ -26,12 +26,33 @@ let effective_plugin (config : Ast.config) name (service : Ast.service)
       (fun (plugin : Ast.plugin) -> plugin.enabled && plugin.name = name)
       plugins
   in
-  match find route.plugins with
+  let find_scoped service_ref route_ref =
+    List.find_map
+      (fun (scoped : Ast.scoped_plugin) ->
+        if
+          scoped.service = service_ref && scoped.route = route_ref
+          && not scoped.consumer_scoped
+          && not scoped.unsupported_reference
+          && scoped.plugin.enabled && scoped.plugin.name = name
+        then Some scoped.plugin
+        else None)
+      config.scoped_plugins
+  in
+  match find_scoped (Some service.name) (Some route.name) with
   | Some plugin -> Some plugin
   | None ->
-    (match find service.plugins with
+    (match find route.plugins with
      | Some plugin -> Some plugin
-     | None -> find config.global_plugins)
+     | None ->
+       (match find_scoped None (Some route.name) with
+        | Some plugin -> Some plugin
+        | None ->
+          (match find service.plugins with
+           | Some plugin -> Some plugin
+           | None ->
+             (match find_scoped (Some service.name) None with
+              | Some plugin -> Some plugin
+              | None -> find config.global_plugins))))
 
 let requires_auth config (service : Ast.service) (route : Ast.route) : bool =
   List.exists

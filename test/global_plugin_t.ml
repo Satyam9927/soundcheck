@@ -52,6 +52,15 @@ let () =
   let global_rate_limit = config ~root:"[{name: rate-limiting}]" () in
   expect_result Report.Proved Verify.Rate_limit_on_public global_rate_limit;
 
+  let root_service_auth =
+    config ~root:"[{name: key-auth, service: api}]" ()
+  in
+  expect_result Report.Proved (Verify.No_anonymous_access "/admin")
+    root_service_auth;
+  let root_route_auth = config ~root:"[{name: key-auth, route: admin}]" () in
+  expect_result Report.Proved (Verify.No_anonymous_access "/admin")
+    root_route_auth;
+
   let overridden_termination =
     config ~root:"[{name: request-termination}]"
       ~service:
@@ -62,18 +71,90 @@ let () =
   if Ir.evaluate policy request <> Allow then
     failwith "service plugin must override the global plugin of the same name";
 
-  let scoped_root =
-    config ~root:"[{name: key-auth, service: api}]" ()
+  let combined_precedence =
+    config
+      ~root:
+        "[{name: request-termination}, {name: request-termination, service: api}, {name: request-termination, route: admin}, {name: request-termination, service: api, route: admin, config: {trigger: x-debug}}]"
+      ()
   in
-  let scoped = parse scoped_root in
+  if Ir.evaluate (Lower.to_policy (parse combined_precedence)) request <> Allow then
+    failwith "combined route/service scope must be the most specific plugin";
+
+  let consumer_scoped =
+    config ~root:"[{name: key-auth, consumer: alice}]" ()
+  in
+  let scoped = parse consumer_scoped in
   if List.length scoped.scoped_plugins <> 1 || scoped.global_plugins <> [] then
     failwith "associated root plugin was incorrectly classified as global";
-  (match Verify.run ~property:(Verify.No_anonymous_access "/admin") scoped_root with
+  (match
+     Verify.run ~property:(Verify.No_anonymous_access "/admin") consumer_scoped
+   with
    | Ok
        { result = Report.Unknown reason;
          assurance = Some { status = Report.Unsupported; _ };
          _ }
      when String.starts_with ~prefix:"unsupported fragment: root-level plugin"
             reason -> ()
-   | Ok _ -> failwith "associated root plugin must produce unknown/unsupported"
+   | Ok _ -> failwith "consumer-scoped plugin must produce unknown/unsupported"
+   | Error error -> failwith error);
+
+  (match
+     Verify.run ~property:(Verify.No_anonymous_access "/admin")
+       (config ~root:"[{name: key-auth, service: missing}]" ())
+   with
+   | Error error
+     when String.starts_with
+            ~prefix:
+              "invalid Kong config: root plugin \"key-auth\" references unknown service"
+            error -> ()
+   | Error error -> failwith ("unexpected reference validation error: " ^ error)
+   | Ok _ -> failwith "unknown root-plugin service reference was accepted");
+
+  let mismatched_scope =
+    {|plugins: [{name: key-auth, service: other, route: admin}]
+services:
+  - name: api
+    routes: [{name: admin, paths: [/admin]}]
+  - name: other
+    routes: [{name: other-route, paths: [/other]}]
+|}
+  in
+  (match
+     Verify.run ~property:(Verify.No_anonymous_access "/admin") mismatched_scope
+   with
+   | Error error
+     when String.starts_with
+            ~prefix:
+              "invalid Kong config: root plugin \"key-auth\" references route \"admin\" outside service \"other\""
+            error -> ()
+   | Error error -> failwith ("unexpected ownership validation error: " ^ error)
+   | Ok _ -> failwith "mismatched root-plugin route/service scope was accepted");
+
+  let non_string_reference =
+    config ~root:"[{name: key-auth, route: {id: route-id}}]" ()
+  in
+  (match
+     Verify.run ~property:(Verify.No_anonymous_access "/admin")
+       non_string_reference
+   with
+   | Ok
+       { result = Report.Unknown reason;
+         assurance = Some { status = Report.Unsupported; _ };
+         _ }
+     when String.starts_with ~prefix:"unsupported fragment: root-level plugin"
+            reason -> ()
+   | Ok _ -> failwith "non-string plugin reference must be unsupported"
+   | Error error -> failwith error);
+
+  let top_level_route =
+    "routes: [{name: root-route, paths: [/admin]}]\nservices: []"
+  in
+  (match Verify.run ~property:(Verify.No_anonymous_access "/admin") top_level_route with
+   | Ok
+       { result = Report.Unknown reason;
+         assurance = Some { status = Report.Unsupported; _ };
+         _ }
+     when String.starts_with ~prefix:"unsupported fragment: top-level routes"
+            reason -> ()
+   | Ok _ -> failwith "top-level route must produce unknown/unsupported"
    | Error error -> failwith error)

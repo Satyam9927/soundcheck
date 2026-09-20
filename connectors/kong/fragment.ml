@@ -74,11 +74,20 @@ let reason (fs : finding list) : string =
     (String.concat "; " (List.map describe fs))
 
 let check (cfg : Ast.config) : (unit, string) result =
-  match cfg.scoped_plugins with
-  | plugin :: _ ->
+  if cfg.has_top_level_routes then
     Error
-      (Printf.sprintf
-         "unsupported fragment: root-level plugin %S has an explicit route, service, or consumer relationship; use nested route/service plugins or a relationship-free global plugin"
-         plugin.name)
-  | [] ->
+      "unsupported fragment: top-level routes require service-reference resolution; nest routes under services"
+  else
+    match
+      List.find_opt
+        (fun (scoped : Ast.scoped_plugin) ->
+          scoped.consumer_scoped || scoped.unsupported_reference)
+        cfg.scoped_plugins
+    with
+    | Some scoped ->
+      Error
+        (Printf.sprintf
+           "unsupported fragment: root-level plugin %S uses a consumer scope or non-string route/service reference"
+           scoped.plugin.name)
+    | None ->
     (match findings cfg with [] -> Ok () | fs -> Error (reason fs))

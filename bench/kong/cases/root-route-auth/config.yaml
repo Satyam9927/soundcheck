@@ -1,0 +1,9 @@
+# A root-level plugin can target a nested route by its declarative name.
+plugins:
+  - name: key-auth
+    route: admin
+services:
+  - name: api
+    routes:
+      - name: admin
+        paths: [/admin]

@@ -47,11 +47,23 @@ type service = {
   plugins : plugin list;   (* service-level plugins (apply to all its routes) *)
 }
 
+type scoped_plugin = {
+  plugin                : plugin;
+  service               : string option;
+  route                 : string option;
+  consumer_scoped       : bool;
+  unsupported_reference : bool;
+}
+
 type config = {
   services       : service list;
   global_plugins : plugin list;
       (* Root-level plugins with no route/service/consumer relationship. *)
-  scoped_plugins : plugin list;
-      (* Root-level plugins carrying an explicit relationship. Their reference
-         form is outside the current nested-service AST and is rejected. *)
+  scoped_plugins : scoped_plugin list;
+      (* Root-level plugins carrying explicit foreign-key relationships. String
+         route/service names are modeled; consumer and non-string references
+         remain outside the current identity model. *)
+  has_top_level_routes : bool;
+      (* Root routes need service-reference resolution before they can join the
+         nested service/route representation. Until then they are unsupported. *)
 }
