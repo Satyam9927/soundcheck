@@ -110,6 +110,28 @@ let host_condition (hosts : string list) : Ir.condition option =
   in
   match hosts with [] -> None | hs -> Some (Ir.Or (List.map of_host hs))
 
+let is_header_regex = function
+  | [ value ] -> String.starts_with ~prefix:"~*" value
+  | _ -> false
+
+let routable_headers (route : Ast.route) =
+  List.filter
+    (fun (name, _) -> String.lowercase_ascii name <> "host")
+    route.headers
+
+let header_condition (route : Ast.route) : Ir.condition option =
+  let exact =
+    routable_headers route
+    |> List.filter (fun (_, values) -> not (is_header_regex values))
+    |> List.map (fun (name, values) ->
+           let name = String.lowercase_ascii name in
+           Ir.Or
+             (List.map
+                (fun value -> Ir.Header_has (name, String.lowercase_ascii value))
+                values))
+  in
+  match exact with [] -> None | conditions -> Some (Ir.And conditions)
+
 (* Routing criteria only: which requests this route is a candidate to serve.
    Policy (auth) is deliberately NOT folded in — see {!Ir.rule}. *)
 let match_condition (path : string option) (route : Ast.route) : Ir.condition =
@@ -120,7 +142,10 @@ let match_condition (path : string option) (route : Ast.route) : Ir.condition =
     | ms -> Ir.Or (List.map (fun m -> Ir.Method_is m) ms)
   in
   let host_c = host_condition route.hosts in
-  Ir.And (List.filter_map Fun.id [ Some path_c; Some method_c; host_c ])
+  let header_c = header_condition route in
+  Ir.And
+    (List.filter_map Fun.id
+       [ Some path_c; Some method_c; host_c; header_c ])
 
 (* Kong's Admin API listens on 8001 (http) and 8444 (https) by default. A service
    whose upstream is that port is proxying the Admin API through the public proxy
@@ -247,11 +272,13 @@ let is_wildcard_host h = String.contains h '*'
 (* A wildcard host "includes a port" when a colon follows the host part. *)
 let wildcard_host_has_port h = is_wildcard_host h && String.contains h ':'
 
-(* Criteria Kong matches on that we do NOT model: hosts, SNIs, headers, and the
-   stream-only sources/destinations. A rule carrying one is marked incomparable —
-   see {!Ir.priority}. Hosts are listed here only until they are modelled. *)
+(* Criteria Kong matches on that we do NOT model exactly: SNIs, regex header
+   values, stream-only sources/destinations, and uppercase hosts. A route carrying
+   one is marked incomparable — see {!Ir.priority}. *)
 let unmodelled_match (route : Ast.route) : bool =
-  route.snis <> [] || route.has_headers || route.has_sources_or_destinations
+  route.snis <> [] || route.has_sources_or_destinations
+  || List.exists (fun (_, values) -> is_header_regex values)
+       (routable_headers route)
   (* An uppercase host can never match: the server lowercases the Host before
      routing, while route hosts are stored as written. Rather than lowercase it —
      which would over-approximate the match, unsafe in the suppression position —
@@ -260,19 +287,21 @@ let unmodelled_match (route : Ast.route) : bool =
 
 let priority_of ~(regex_priority : int) (route : Ast.route) (path : string option)
     : Ir.priority =
+  let headers = routable_headers route in
   let has_uri = path <> None in
   let has_method = route.methods <> [] in
   let has_host = route.hosts <> [] in
+  let has_headers = headers <> [] in
   let has_sni = route.snis <> [] in
   let bit b present = if present then b else 0 in
   let category_bit =
     bit rule_uri has_uri lor bit rule_method has_method lor bit rule_host has_host
-    lor bit rule_header route.has_headers lor bit rule_sni has_sni
+    lor bit rule_header has_headers lor bit rule_sni has_sni
   in
   let match_weight =
     List.length
       (List.filter Fun.id
-         [ has_uri; has_method; has_host; route.has_headers; has_sni ])
+         [ has_uri; has_method; has_host; has_headers; has_sni ])
   in
   let is_regex = match path with Some p -> Fragment.is_regex_path p | None -> false in
   let submatch_weight =
@@ -287,7 +316,9 @@ let priority_of ~(regex_priority : int) (route : Ast.route) (path : string optio
   let rp = if is_regex then regex_priority else 0 in
   let uri_length = match path with Some p -> String.length p | None -> 0 in
   { Ir.comparable = not (unmodelled_match route);
-    key = [ match_weight; category_bit; submatch_weight; 0; rp; uri_length ] }
+    key =
+      [ match_weight; category_bit; submatch_weight; List.length headers; rp;
+        uri_length ] }
 
 (* One IR rule per (route, path) rather than per route. A Kong route may carry
    several paths of different lengths, which would leave a single rule with no
@@ -306,6 +337,7 @@ let rules_of_route (service : Ast.service) (route : Ast.route) : Ir.rule list =
     (fun path : Ir.rule ->
       { id = route.name;
         match_ = match_condition path route;
+        match_complete = not (unmodelled_match route);
         guard;
         priority = priority_of ~regex_priority:route.regex_priority route path;
         decision = Ir.Allow;

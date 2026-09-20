@@ -1,0 +1,10 @@
+# Exact header criteria participate in matching and route selection. The
+# counterexample must carry the header value required to reach this open route.
+_format_version: "3.0"
+services:
+  - name: admin-api
+    routes:
+      - name: admin-role
+        paths: [/admin]
+        headers:
+          x-role: [admin]

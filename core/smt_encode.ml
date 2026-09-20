@@ -9,6 +9,14 @@ let smt_str s =
   Buffer.add_char b '"';
   Buffer.contents b
 
+let hex s =
+  s |> String.to_seq
+  |> Seq.map (fun c -> Printf.sprintf "%02x" (Char.code c))
+  |> List.of_seq |> String.concat ""
+
+let header_symbol name value =
+  Printf.sprintf "header_%s_%s" (hex name) (hex value)
+
 (* A condition becomes a boolean SMT-LIB2 expression over the symbolic request
    fields [path], [method], [is_anon]. *)
 let rec cond (c : Ir.condition) : string =
@@ -22,6 +30,8 @@ let rec cond (c : Ir.condition) : string =
   | Ir.Requires_auth -> "(not is_anon)"
   | Ir.Source_in c -> Cidr.to_smt ~var:"src_ip" c
   | Ir.Host_matches re -> Printf.sprintf "(str.in_re host %s)" (Regex.to_smt re)
+  | Ir.Header_has (name, value) ->
+    header_symbol name value
   | Ir.Not c -> Printf.sprintf "(not %s)" (cond c)
   | Ir.And [] -> "true"
   | Ir.And cs -> Printf.sprintf "(and %s)" (String.concat " " (List.map cond cs))
@@ -82,7 +92,23 @@ let allowed_formula ~reach_via (p : Ir.policy) : string =
   let def = match p.default with Ir.Allow -> "true" | Ir.Deny -> "false" in
   Printf.sprintf "(and (not %s) (or %s %s))" d a def
 
-let preamble b title =
+let rec header_atoms = function
+  | Ir.Header_has (name, value) -> [ (name, value) ]
+  | Ir.Not condition -> header_atoms condition
+  | Ir.And conditions | Ir.Or conditions ->
+    List.concat_map header_atoms conditions
+  | _ -> []
+
+let unique_headers conditions =
+  conditions |> List.concat_map header_atoms |> List.sort_uniq compare
+
+let policy_conditions (policy : Ir.policy) =
+  policy.request_domain
+  :: List.concat_map
+       (fun (rule : Ir.rule) -> [ rule.match_; rule.guard ])
+       policy.rules
+
+let preamble b title headers =
   Buffer.add_string b "; Soundcheck SMT-LIB2 query\n";
   Buffer.add_string b title;
   Buffer.add_string b "(set-logic ALL)\n";
@@ -92,11 +118,23 @@ let preamble b title =
   (* A bitvector, so CIDR membership is a mask-and-compare rather than string
      arithmetic. Declared for every query; unused by properties that ignore it. *)
   Buffer.add_string b "(declare-const src_ip (_ BitVec 32))\n";
-  Buffer.add_string b "(declare-const host String)\n"
+  Buffer.add_string b "(declare-const host String)\n";
+  List.iter
+    (fun (name, value) ->
+      Buffer.add_string b
+        (Printf.sprintf "(declare-const %s Bool)\n"
+           (header_symbol name value)))
+    headers
 
-let epilogue b =
+let epilogue b headers =
   Buffer.add_string b "(check-sat)\n";
-  Buffer.add_string b "(get-value (path method is_anon src_ip host))\n";
+  let header_symbols =
+    headers |> List.map (fun (name, value) -> header_symbol name value)
+    |> String.concat " "
+  in
+  Buffer.add_string b
+    (Printf.sprintf "(get-value (path method is_anon src_ip host%s%s))\n"
+       (if header_symbols = "" then "" else " ") header_symbols);
   Buffer.contents b
 
 let assert_domain b domain =
@@ -105,11 +143,13 @@ let assert_domain b domain =
 
 let condition_query ?(domain = Ir.True) ~name ~description condition =
   let b = Buffer.create 256 in
-  preamble b (Printf.sprintf "; property preflight: %s — %s\n" name description);
+  let headers = unique_headers [ domain; condition ] in
+  preamble b (Printf.sprintf "; property preflight: %s — %s\n" name description)
+    headers;
   assert_domain b domain;
   Buffer.add_string b "; the property's forbidden request class is inhabited:\n";
   Buffer.add_string b (Printf.sprintf "(assert %s)\n" (cond condition));
-  epilogue b
+  epilogue b headers
 
 let overlap_query ?(domain = Ir.True) left right =
   let left_class = Contract.request_class left in
@@ -144,7 +184,8 @@ let definitely_allowed_formula (p : Ir.policy) : string =
               (fun (r, selected) ->
                 let allows =
                   match r.Ir.decision with
-                  | Ir.Allow -> cond r.Ir.guard
+                  | Ir.Allow when r.Ir.match_complete -> cond r.Ir.guard
+                  | Ir.Allow -> "false"
                   | Ir.Deny -> "false"
                 in
                 Printf.sprintf "(=> %s %s)" selected allows)
@@ -156,9 +197,14 @@ let definitely_allowed_formula (p : Ir.policy) : string =
 
 let contract_clause_query (p : Ir.policy) (clause : Contract.clause) : string =
   let b = Buffer.create 512 in
+  let headers =
+    unique_headers
+      (Contract.request_class clause :: policy_conditions p)
+  in
   preamble b
     (Printf.sprintf "; contract clause: %s — %s\n"
-       (Contract.name clause) (Contract.description clause));
+       (Contract.name clause) (Contract.description clause))
+    headers;
   assert_domain b p.request_domain;
   Buffer.add_string b "; the request is in the clause's request class:\n";
   Buffer.add_string b
@@ -173,18 +219,22 @@ let contract_clause_query (p : Ir.policy) (clause : Contract.clause) : string =
      Buffer.add_string b "; ... yet the policy does not definitely allow it:\n";
      Buffer.add_string b
        (Printf.sprintf "(assert (not %s))\n" (definitely_allowed_formula p)));
-  epilogue b
+  epilogue b headers
 
 let to_smtlib (p : Ir.policy) (prop : Property.t) : string =
   let b = Buffer.create 512 in
-  preamble b (Printf.sprintf "; property: %s — %s\n" prop.name prop.description);
+  let headers =
+    unique_headers (prop.forbidden_when :: policy_conditions p)
+  in
+  preamble b (Printf.sprintf "; property: %s — %s\n" prop.name prop.description)
+    headers;
   assert_domain b p.request_domain;
   Buffer.add_string b "; the request is in the property's forbidden class:\n";
   Buffer.add_string b (Printf.sprintf "(assert %s)\n" (cond prop.forbidden_when));
   Buffer.add_string b "; ... yet the policy would allow it:\n";
   Buffer.add_string b
     (Printf.sprintf "(assert %s)\n" (allowed_formula ~reach_via:prop.reach_via p));
-  epilogue b
+  epilogue b headers
 
 (* One shadowing pair:  selected_i ∧ match_k ∧ guard_i ∧ ¬guard_k.
 
@@ -195,9 +245,11 @@ let to_smtlib (p : Ir.policy) (prop : Property.t) : string =
 let shadowing_query (p : Ir.policy) (pair : Shadowing.pair) : string =
   let i = pair.shadowing and k = pair.shadowed in
   let b = Buffer.create 512 in
+  let headers = unique_headers (policy_conditions p) in
   preamble b
     (Printf.sprintf "; property: %s — route %S shadowed by route %S\n"
-       Shadowing.name k.Ir.id i.Ir.id);
+       Shadowing.name k.Ir.id i.Ir.id)
+    headers;
   assert_domain b p.request_domain;
   Buffer.add_string b "; the higher-priority route serves the request:\n";
   Buffer.add_string b (Printf.sprintf "(assert %s)\n" (selected p.rules i));
@@ -207,4 +259,4 @@ let shadowing_query (p : Ir.policy) (pair : Shadowing.pair) : string =
   Buffer.add_string b (Printf.sprintf "(assert %s)\n" (cond i.Ir.guard));
   Buffer.add_string b "; ... where the shadowed route would have stopped it:\n";
   Buffer.add_string b (Printf.sprintf "(assert (not %s))\n" (cond k.Ir.guard));
-  epilogue b
+  epilogue b headers

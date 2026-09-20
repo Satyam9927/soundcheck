@@ -121,7 +121,7 @@ let request_of (ce : Report.counterexample) : Ir.request =
        else Ir.Authenticated "user");
     action = ce.action;
     resource = ce.path;
-    context = [];
+    context = ce.headers;
     source = ce.source_ip;
     host = ce.host }
 

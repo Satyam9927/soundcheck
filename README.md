@@ -175,6 +175,11 @@ merged. Literal route paths and contract/property prefixes must already be norma
 matching Kong's route-schema requirement; invalid inputs fail with a suggested canonical
 path. Regex route paths remain authored regex patterns and are not rewritten.
 
+Exact route-header criteria are modeled case-insensitively, including repeated
+request values and Kong's header-count priority rule. A sole header value beginning
+with `~*` is Kong's regex form; it remains a conservative profile finding rather
+than being treated as an exact string.
+
 ## The JSON contract
 
 `--format json` emits a stable schema. It is the universal integration point, consumed
@@ -183,10 +188,10 @@ identically by CI, the MCP tool, and eventually the repair loop.
 ```json
 {
   "result": "violated",
-  "schema_version": 7,
+  "schema_version": 8,
   "property": "no-anonymous-access",
   "assurance": {
-    "profile": "kong-traditional-http-v2",
+    "profile": "kong-traditional-http-v3",
     "status": "within_profile",
     "findings": []
   },
@@ -197,6 +202,7 @@ identically by CI, the MCP tool, and eventually the repair loop.
     "action": "GET",
     "path": "/admin",
     "host": "",
+    "headers": [],
     "source_ip": "0.0.0.0",
     "route": "admin-route",
     "service": "admin-api",

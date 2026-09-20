@@ -21,9 +21,11 @@ type route = {
   paths          : string list;
   methods        : string list;   (* empty = any method *)
   plugins        : plugin list;   (* route-level plugins *)
-  hosts          : string list;   (* NOT modelled — see Lower.unmodelled_match *)
+  hosts          : string list;   (* lowercase exact/wildcard hosts are modeled *)
   snis           : string list;   (* NOT modelled *)
-  has_headers    : bool;          (* NOT modelled *)
+  headers        : (string * string list) list;
+      (* Header names and values as authored. Exact values are modeled
+         case-insensitively; a sole value beginning [~*] is Kong regex syntax. *)
   has_sources_or_destinations : bool;
       (* stream (TCP/TLS) routing criteria — NOT modelled, and they also count
          toward Kong's category match_weight, so a route carrying them cannot be

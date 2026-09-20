@@ -11,6 +11,7 @@ type counterexample = {
   shadowed_service : string option;
   host             : string;
   source_ip        : int32;
+  headers          : (string * string) list;
   note             : string;
 }
 
@@ -129,13 +130,20 @@ let jopt = function
 (* Bumped when the shape changes in a way a consumer must notice. Adding an
    always-present field counts; every key below is emitted unconditionally
    (null when absent) so a consumer never has to probe for existence. *)
-let schema_version = 7
+let schema_version = 8
 
 let counterexample_json ce =
+  let headers =
+    ce.headers
+    |> List.map (fun (name, value) ->
+           Printf.sprintf "{\"name\":%s,\"value\":%s}"
+             (jstring name) (jstring value))
+    |> String.concat ","
+  in
   Printf.sprintf
-    "{\"principal\":%s,\"action\":%s,\"path\":%s,\"host\":%s,\"source_ip\":%s,\"route\":%s,\"service\":%s,\"shadowed_route\":%s,\"shadowed_service\":%s}"
+    "{\"principal\":%s,\"action\":%s,\"path\":%s,\"host\":%s,\"headers\":[%s],\"source_ip\":%s,\"route\":%s,\"service\":%s,\"shadowed_route\":%s,\"shadowed_service\":%s}"
     (jstring ce.principal) (jstring ce.action) (jstring ce.path) (jstring ce.host)
-    (jstring (Cidr.string_of_ip ce.source_ip))
+    headers (jstring (Cidr.string_of_ip ce.source_ip))
     (jopt ce.route) (jopt ce.service)
     (jopt ce.shadowed_route) (jopt ce.shadowed_service)
 
