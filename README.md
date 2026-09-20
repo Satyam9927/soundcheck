@@ -168,6 +168,13 @@ conservative, and unsupported feature lists let humans, CI systems, and agents i
 what a `proved` result means without reading the implementation. Use `--format json`
 for the stable machine-readable profile schema.
 
+Kong normalizes incoming request paths before routing. Soundcheck therefore reasons
+over the same post-normalization path domain: percent triplets are canonicalized,
+non-reserved bytes are decoded, dot segments are removed, and duplicate slashes are
+merged. Literal route paths and contract/property prefixes must already be normalized,
+matching Kong's route-schema requirement; invalid inputs fail with a suggested canonical
+path. Regex route paths remain authored regex patterns and are not rewritten.
+
 ## The JSON contract
 
 `--format json` emits a stable schema. It is the universal integration point, consumed
@@ -179,7 +186,7 @@ identically by CI, the MCP tool, and eventually the repair loop.
   "schema_version": 7,
   "property": "no-anonymous-access",
   "assurance": {
-    "profile": "kong-traditional-http-v1",
+    "profile": "kong-traditional-http-v2",
     "status": "within_profile",
     "findings": []
   },
@@ -435,6 +442,7 @@ core/          shared engine, the reusable asset
 connectors/    thin frontends (parse→IR, lift counterexample→config vocabulary)
   kong/          decK YAML, first connector
     fragment.ml    decidability boundary: reject what the encoder cannot model
+    path_normalization.ml  Kong request domain and literal-path validation
 cli/           soundcheck verify, soundcheck profile, soundcheck mcp
 mcp/           soundcheck mcp, JSON-RPC 2.0 over stdio
 bench/         labeled corpus + regression gate
