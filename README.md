@@ -11,8 +11,8 @@ own vocabulary.
 $ soundcheck verify kong.yaml
 VIOLATED no-anonymous-access
          anonymous request GET /admin is ALLOWED via route "admin-route"
-         (service "admin-api") — no authentication plugin is attached to the
-         route or its service.
+         (service "admin-api") — no authentication plugin is attached at route,
+         service, or global scope.
 $ echo $?
 3
 ```
@@ -196,7 +196,7 @@ identically by CI, the MCP tool, and eventually the repair loop.
   "schema_version": 9,
   "property": "no-anonymous-access",
   "assurance": {
-    "profile": "kong-traditional-http-v5",
+    "profile": "kong-traditional-http-v6",
     "status": "within_profile",
     "findings": []
   },
@@ -405,16 +405,20 @@ This is an early project and the boundaries are worth stating plainly.
   is not counted, so a route it protects is treated as open and reported as violated. That
   errs toward a false alarm rather than a false clean bill, which is the direction this
   tool should fail in, but it does mean unusual setups need the list extended.
-- **Unconditional `request-termination` denies upstream access.** Kong selects the most
-  specific enabled configuration for a plugin name, so route configuration overrides
-  service configuration. A configured trigger is conservative because Kong checks both
-  header and query-parameter presence, and query parameters are not yet in the IR.
+- **Global plugins and plugin precedence are modelled.** A relationship-free root
+  `plugins:` entry applies globally. Kong selects the most specific enabled configuration
+  for a plugin name in route → service → global order. Root plugins carrying explicit
+  route, service, or consumer references remain unsupported rather than being mistaken
+  for global.
+- **Unconditional `request-termination` denies upstream access.** A configured trigger
+  is conservative because Kong checks both header and query-parameter presence, and query
+  parameters are not yet in the IR.
 - Anything outside the supported fragment should surface as `unknown` with a reason rather
   than as a quiet pass. Keeping that boundary explicit is a design rule, not a nicety.
 
 ## Testing
 
-`bench/kong/cases/` holds 43 labeled cases, each a config plus a golden `expected.json`
+`bench/kong/cases/` holds 44 labeled cases, each a config plus a golden `expected.json`
 produced by the engine and hand-checked against intent. They span the real
 misconfiguration shapes: a missing plugin, service versus route-level auth inheritance, an
 open sibling route, a method-specific gap (`GET` guarded, `POST` open), a leak in a second
