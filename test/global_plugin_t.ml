@@ -147,14 +147,14 @@ services:
    | Error error -> failwith error);
 
   let top_level_route =
-    "routes: [{name: root-route, paths: [/admin]}]\nservices: []"
+    "routes: [{name: root-route, service: {id: service-id}, paths: [/admin]}]\nservices: []"
   in
   (match Verify.run ~property:(Verify.No_anonymous_access "/admin") top_level_route with
    | Ok
        { result = Report.Unknown reason;
          assurance = Some { status = Report.Unsupported; _ };
          _ }
-     when String.starts_with ~prefix:"unsupported fragment: top-level routes"
+     when String.starts_with ~prefix:"unsupported fragment: top-level route"
             reason -> ()
-   | Ok _ -> failwith "top-level route must produce unknown/unsupported"
+   | Ok _ -> failwith "non-string top-level route reference must be unsupported"
    | Error error -> failwith error)

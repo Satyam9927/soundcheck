@@ -3,9 +3,9 @@
     Literal-prefix and regex paths are both modelled, so what remains outside the
     fragment is exactly what {!Regex.parse} refuses — constructs that are not
     regular, or whose language we decline to guess. Root-level plugins carrying
-    consumer relationships or non-string foreign keys are also rejected, as are
-    top-level routes whose service references have not yet been resolved. Such a
-    config reports [unknown] rather than being approximated. *)
+    consumer relationships or non-string foreign keys are also rejected. This
+    includes non-string service references on top-level routes. Such a config
+    reports [unknown] rather than being approximated. *)
 
 type finding = {
   service : string;

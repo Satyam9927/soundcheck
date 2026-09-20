@@ -42,21 +42,26 @@ let pattern_of (p : string) : string =
   else p
 
 let findings (cfg : Ast.config) : finding list =
+  let route_findings service (route : Ast.route) =
+    List.filter_map
+      (fun path ->
+        if not (is_regex_path path) then None
+        else
+          match Regex.parse (pattern_of path) with
+          | Ok _ -> None
+          | Error why ->
+            Some { service; route = route.name; path; why })
+      route.paths
+  in
   List.concat_map
     (fun (s : Ast.service) ->
-      List.concat_map
-        (fun (r : Ast.route) ->
-          List.filter_map
-            (fun p ->
-              if not (is_regex_path p) then None
-              else
-                match Regex.parse (pattern_of p) with
-                | Ok _ -> None
-                | Error why ->
-                  Some { service = s.name; route = r.name; path = p; why })
-            r.paths)
-        s.routes)
+      List.concat_map (route_findings s.name) s.routes)
     cfg.services
+  @ (cfg.top_level_routes
+    |> List.filter (fun (top : Ast.top_level_route) ->
+           top.service = None && not top.unsupported_reference)
+    |> List.concat_map (fun (top : Ast.top_level_route) ->
+           route_findings "<no-service>" top.route))
 
 let describe (f : finding) =
   Printf.sprintf "route %S (service %S) path %S — %s" f.route f.service f.path
@@ -74,11 +79,18 @@ let reason (fs : finding list) : string =
     (String.concat "; " (List.map describe fs))
 
 let check (cfg : Ast.config) : (unit, string) result =
-  if cfg.has_top_level_routes then
+  match
+    List.find_opt
+      (fun (top : Ast.top_level_route) -> top.unsupported_reference)
+      cfg.top_level_routes
+  with
+  | Some top ->
     Error
-      "unsupported fragment: top-level routes require service-reference resolution; nest routes under services"
-  else
-    match
+      (Printf.sprintf
+         "unsupported fragment: top-level route %S uses a non-string service reference"
+         top.route.name)
+  | None ->
+    (match
       List.find_opt
         (fun (scoped : Ast.scoped_plugin) ->
           scoped.consumer_scoped || scoped.unsupported_reference)
@@ -89,5 +101,5 @@ let check (cfg : Ast.config) : (unit, string) result =
         (Printf.sprintf
            "unsupported fragment: root-level plugin %S uses a consumer scope or non-string route/service reference"
            scoped.plugin.name)
-    | None ->
-    (match findings cfg with [] -> Ok () | fs -> Error (reason fs))
+     | None ->
+       (match findings cfg with [] -> Ok () | fs -> Error (reason fs)))

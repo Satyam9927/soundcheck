@@ -55,6 +55,12 @@ type scoped_plugin = {
   unsupported_reference : bool;
 }
 
+type top_level_route = {
+  route                 : route;
+  service               : string option;
+  unsupported_reference : bool;
+}
+
 type config = {
   services       : service list;
   global_plugins : plugin list;
@@ -63,7 +69,8 @@ type config = {
       (* Root-level plugins carrying explicit foreign-key relationships. String
          route/service names are modeled; consumer and non-string references
          remain outside the current identity model. *)
-  has_top_level_routes : bool;
-      (* Root routes need service-reference resolution before they can join the
-         nested service/route representation. Until then they are unsupported. *)
+  top_level_routes : top_level_route list;
+      (* Routes authored at the document root. String service references are
+         also inserted into the matching service's [routes]; a missing service
+         becomes a denying route, while non-string references are unsupported. *)
 }

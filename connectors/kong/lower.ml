@@ -403,7 +403,8 @@ let priority_of ~(regex_priority : int) ~(include_sni : bool)
    preserving under the current flat-OR encoder since (or (or p1 p2)) = (or p1 p2).
    Both rules keep the route's name as [id], so counterexample lifting is
    unaffected. *)
-let rules_of_route config (service : Ast.service) (route : Ast.route) : Ir.rule list =
+let rules_of_route ?(decision = Ir.Allow) config (service : Ast.service)
+    (route : Ast.route) : Ir.rule list =
   if
     not
       (List.exists
@@ -435,19 +436,30 @@ let rules_of_route config (service : Ast.service) (route : Ast.route) : Ir.rule 
             match_complete;
             guard;
             priority = { priority with comparable = match_complete };
-            decision = Ir.Allow;
+            decision;
             rate_limited;
             targets_admin })
         variants)
     paths
 
 let to_policy (cfg : Ast.config) : Ir.policy =
-  let rules =
+  let service_rules =
     List.concat_map
       (fun (service : Ast.service) ->
         List.concat_map (rules_of_route cfg service) service.routes)
       cfg.services
   in
+  let no_service : Ast.service =
+    { name = "<no-service>"; url = ""; routes = []; plugins = [] }
+  in
+  let service_less_rules =
+    cfg.top_level_routes
+    |> List.filter (fun (top : Ast.top_level_route) ->
+           top.service = None && not top.unsupported_reference)
+    |> List.concat_map (fun (top : Ast.top_level_route) ->
+           rules_of_route ~decision:Ir.Deny cfg no_service top.route)
+  in
+  let rules = service_rules @ service_less_rules in
   { request_domain =
       Ir.And
         [ Path_normalization.request_domain;
