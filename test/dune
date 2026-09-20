@@ -36,3 +36,23 @@
 (test
  (name mcp_frozen_t)
  (libraries soundcheck_core soundcheck_kong soundcheck_mcp))
+
+(executable
+ (name mcp_frozen_acceptance)
+ (libraries soundcheck_kong yaml unix))
+
+(rule
+ (alias runtest)
+ (deps
+  ../bench/kong/contracts/admin-get.yaml
+  ../bench/kong/workflows/frozen-admin/unsafe.yaml
+  ../bench/kong/workflows/frozen-admin/repaired.yaml
+  ../bench/kong/workflows/frozen-admin/deny-all.yaml)
+ (action
+  (run
+   %{exe:mcp_frozen_acceptance.exe}
+   %{exe:../cli/main.exe}
+   %{dep:../bench/kong/contracts/admin-get.yaml}
+   %{dep:../bench/kong/workflows/frozen-admin/unsafe.yaml}
+   %{dep:../bench/kong/workflows/frozen-admin/repaired.yaml}
+   %{dep:../bench/kong/workflows/frozen-admin/deny-all.yaml})))
