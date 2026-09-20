@@ -35,7 +35,11 @@ let plugins_of (v : Yaml.value option) : Ast.plugin list =
           in
           Some
             ({ name = n; enabled = enabled_of x;
-               allow = list_in "allow"; deny = list_in "deny" }
+               allow = list_in "allow"; deny = list_in "deny";
+               trigger =
+                 (match cfg with
+                  | Some c -> Option.bind (member "trigger" c) to_string
+                  | None -> None) }
               : Ast.plugin)
         | _ -> None)
       xs

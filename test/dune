@@ -53,6 +53,10 @@
  (name sni_routing_t)
  (libraries soundcheck_core soundcheck_kong))
 
+(test
+ (name request_termination_t)
+ (libraries soundcheck_core soundcheck_kong))
+
 (executable
  (name profile_cli_t)
  (libraries soundcheck_kong unix))

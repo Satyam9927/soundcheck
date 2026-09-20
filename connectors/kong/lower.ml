@@ -15,11 +15,21 @@ let auth_plugins =
 
 let is_auth_plugin (name : string) = List.mem name auth_plugins
 
-let requires_auth (service : Ast.service) (route : Ast.route) : bool =
-  let has ps =
-    List.exists (fun (p : Ast.plugin) -> p.enabled && is_auth_plugin p.name) ps
+(* Kong executes at most one configuration for a given plugin name. The most
+   specific enabled entity wins: route before service. A disabled entity is not
+   loaded and therefore does not hide a less-specific enabled configuration. *)
+let effective_plugin name (service : Ast.service) (route : Ast.route) =
+  let find plugins =
+    List.find_opt
+      (fun (plugin : Ast.plugin) -> plugin.enabled && plugin.name = name)
+      plugins
   in
-  has route.plugins || has service.plugins
+  match find route.plugins with Some plugin -> Some plugin | None -> find service.plugins
+
+let requires_auth (service : Ast.service) (route : Ast.route) : bool =
+  List.exists
+    (fun name -> Option.is_some (effective_plugin name service route))
+    auth_plugins
 
 (* Kong rate-limiting / throttling plugins. *)
 let rate_limit_plugins =
@@ -29,10 +39,12 @@ let rate_limit_plugins =
 let is_rate_limit_plugin (name : string) = List.mem name rate_limit_plugins
 
 let rate_limited (service : Ast.service) (route : Ast.route) : bool =
-  let has ps =
-    List.exists (fun (p : Ast.plugin) -> p.enabled && is_rate_limit_plugin p.name) ps
-  in
-  has route.plugins || has service.plugins
+  List.exists
+    (fun name -> Option.is_some (effective_plugin name service route))
+    rate_limit_plugins
+
+let request_termination (service : Ast.service) (route : Ast.route) =
+  effective_plugin "request-termination" service route
 
 (* One route path as an IR condition.
 
@@ -217,11 +229,7 @@ let cidrs_of (entries : string list) : Ir.condition list =
 
 let ip_restriction_condition (service : Ast.service) (route : Ast.route) :
     Ir.condition =
-  let plugins =
-    List.filter
-      (fun (p : Ast.plugin) -> p.enabled && p.name = "ip-restriction")
-      (route.plugins @ service.plugins)
-  in
+  let plugins = Option.to_list (effective_plugin "ip-restriction" service route) in
   let conds =
     List.concat_map
       (fun (p : Ast.plugin) ->
@@ -240,9 +248,14 @@ let guard_condition (service : Ast.service) (route : Ast.route) : Ir.condition =
     then Ir.Scheme_is "https"
     else Ir.True
   in
+  let termination =
+    match request_termination service route with
+    | Some { trigger = None; _ } -> Ir.Or []
+    | Some { trigger = Some _; _ } | None -> Ir.True
+  in
   match
     List.filter (fun c -> c <> Ir.True)
-      [ protocol; auth; ip_restriction_condition service route ]
+      [ protocol; auth; ip_restriction_condition service route; termination ]
   with
   | [] -> Ir.True
   | [ c ] -> c

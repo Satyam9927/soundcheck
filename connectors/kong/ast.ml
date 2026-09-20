@@ -14,6 +14,9 @@ type plugin = {
   deny    : string list;
       (* ip-restriction's config.deny — checked BEFORE allow, so a listed address
          is refused outright. Empty for other plugins. *)
+  trigger : string option;
+      (* request-termination's optional header/query trigger. When present the
+         plugin is conditional rather than an unconditional denial. *)
 }
 
 type route = {

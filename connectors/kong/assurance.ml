@@ -30,9 +30,9 @@ type assessment = {
 let feature code description = { code; description }
 
 let profile =
-  { id = "kong-traditional-http-v4";
+  { id = "kong-traditional-http-v5";
     connector = "kong";
-    version = 4;
+    version = 5;
     target = "Kong Gateway traditional/traditional_compatible HTTP routing";
     modeled =
       [ feature "literal-path-prefix" "literal HTTP path-prefix matching";
@@ -47,6 +47,7 @@ let profile =
         feature "known-auth-plugins" "authentication requirement from Soundcheck's known plugin list";
         feature "known-rate-limit-plugins" "rate-limit coverage from Soundcheck's known plugin list";
         feature "ipv4-ip-restriction" "IPv4 ip-restriction allow and deny guards over Kong's derived client IP";
+        feature "request-termination" "unconditional request-termination denial with Kong plugin precedence";
         feature "default-admin-ports" "Admin API recognition on default ports 8001 and 8444";
         feature "default-deny" "denying fallthrough when no route guard allows a request" ];
     conservative =
@@ -56,7 +57,8 @@ let profile =
         feature "route-stream-match" "source/destination criteria are over-approximated and the route is left incomparable";
         feature "uppercase-host" "uppercase route hosts are left incomparable because request hosts are lowercased";
         feature "unrecognized-plugin" "unrecognized plugins provide no modeled auth or rate-limit behavior";
-        feature "invalid-ip-cidr" "IPv6 or malformed ip-restriction entries are dropped, weakening the guard" ];
+        feature "invalid-ip-cidr" "IPv6 or malformed ip-restriction entries are dropped, weakening the guard";
+        feature "conditional-request-termination" "triggered request-termination depends on unmodeled query parameters" ];
     unsupported =
       [ feature "unsupported-path-regex" "non-regular or untranslated regex constructs make the whole result unknown" ] }
 
@@ -74,7 +76,7 @@ let plugin_findings ?route service plugins =
       else
       let known =
         Lower.is_auth_plugin plugin.name || Lower.is_rate_limit_plugin plugin.name
-        || plugin.name = "ip-restriction"
+        || plugin.name = "ip-restriction" || plugin.name = "request-termination"
       in
       let unknown =
         if known then []
@@ -95,7 +97,16 @@ let plugin_findings ?route service plugins =
                      (Printf.sprintf "ip-restriction entry %S is not modeled as IPv4" entry)))
             (plugin.allow @ plugin.deny)
       in
-      unknown @ invalid_cidrs)
+      let conditional_termination =
+        match (plugin.name, plugin.trigger) with
+        | "request-termination", Some trigger ->
+          [ finding ~service ?route "conditional-request-termination"
+              (Printf.sprintf
+                 "request-termination trigger %S depends on header or query presence"
+                 trigger) ]
+        | _ -> []
+      in
+      unknown @ invalid_cidrs @ conditional_termination)
     plugins
 
 let route_findings (service : Ast.service) (route : Ast.route) =

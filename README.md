@@ -196,7 +196,7 @@ identically by CI, the MCP tool, and eventually the repair loop.
   "schema_version": 9,
   "property": "no-anonymous-access",
   "assurance": {
-    "profile": "kong-traditional-http-v4",
+    "profile": "kong-traditional-http-v5",
     "status": "within_profile",
     "findings": []
   },
@@ -388,34 +388,33 @@ This is an early project and the boundaries are worth stating plainly.
   absent from a declarative config, so rules equal on everything above it stay tied.
   A rule whose match criteria include something unmodelled is left unordered against
   everything, so it neither suppresses nor is suppressed.
-- **Request-path normalization is not modelled, which costs precision rather than
-  soundness.** Kong normalizes the request URI (percent-decoding, dot-segment removal,
-  slash merging) before matching, but does *not* normalize declared route paths.
-  Soundcheck's symbolic path ranges over all strings, so it considers paths Kong would
-  never hand the router. Because the encoding is pointwise and our matching agrees with
-  Kong's at every normalized path, a proof still covers every real request; what can
-  happen is the reverse: a witness that is not a normalized path, or a finding through a
-  route like `/admin/%2e%2e/secret` that Kong could never match. False alarms, not missed
-  violations.
+- **Request-path normalization is modelled.** Symbolic request paths are restricted to
+  Kong's normalized URI domain, while non-normalized literal route paths are rejected
+  with their normalized replacement. This keeps proofs and witnesses inside the request
+  language Kong actually hands to its router.
 - **The Admin API is recognised by upstream port** (8001 and 8444, Kong's defaults). A
   gateway on a non-default admin port is not recognised, and `admin-api-not-reachable`
   then stays quiet about it. That is the *false-negative* direction for this one property,
   which is why the port list is documented rather than buried.
 - **Source addresses are IPv4 and are the connection peer.** `ip-restriction` reads the
   raw connection address and ignores `X-Forwarded-For`, so behind a load balancer every
-  request appears to come from the balancer; the model inherits that. IPv6 entries are
-  rejected by the CIDR parser rather than ignored, and an unparseable entry is dropped
-  from the guard, which weakens it and so over-reports.
+  request appears to come from the balancer; the model inherits that. IPv6 and malformed
+  entries are dropped from the modeled guard and reported as conservative findings,
+  which weakens the restriction and therefore over-reports.
 - **Auth and rate-limiting plugins are recognised by name.** A custom or unlisted plugin
   is not counted, so a route it protects is treated as open and reported as violated. That
   errs toward a false alarm rather than a false clean bill, which is the direction this
   tool should fail in, but it does mean unusual setups need the list extended.
+- **Unconditional `request-termination` denies upstream access.** Kong selects the most
+  specific enabled configuration for a plugin name, so route configuration overrides
+  service configuration. A configured trigger is conservative because Kong checks both
+  header and query-parameter presence, and query parameters are not yet in the IR.
 - Anything outside the supported fragment should surface as `unknown` with a reason rather
   than as a quiet pass. Keeping that boundary explicit is a design rule, not a nicety.
 
 ## Testing
 
-`bench/kong/cases/` holds 35 labeled cases, each a config plus a golden `expected.json`
+`bench/kong/cases/` holds 43 labeled cases, each a config plus a golden `expected.json`
 produced by the engine and hand-checked against intent. They span the real
 misconfiguration shapes: a missing plugin, service versus route-level auth inheritance, an
 open sibling route, a method-specific gap (`GET` guarded, `POST` open), a leak in a second
