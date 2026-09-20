@@ -19,8 +19,8 @@ type action = string          (** e.g. HTTP method: "GET", "POST" *)
 type resource = string        (** e.g. a request path: "/admin/config" *)
 
 type context = (string * string) list
-(** free-form attribute bindings for conditions (reserved for ABAC-style
-    predicates; unused by the v0 encoder). *)
+(** Request attributes. Repeated keys represent multi-valued attributes such as
+    HTTP headers. *)
 
 type request = {
   principal : principal;
@@ -61,6 +61,9 @@ type condition =
       (** [host] belongs to the language, in full. Kong compiles both plain and
           wildcard host patterns down to a regex, so one condition covers both and
           the connector owns the translation. *)
+  | Header_has of string * string
+      (** The request contains this lowercase header-name/value pair. Repeated
+          request headers are represented by repeated [context] bindings. *)
   | Not of condition
   | And of condition list
   | Or  of condition list

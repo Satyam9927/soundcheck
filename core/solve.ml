@@ -4,6 +4,7 @@ type model = {
   is_anon : bool;
   src_ip  : int32;
   host    : string;
+  headers : (string * string) list;
 }
 
 type result =
@@ -81,6 +82,66 @@ let extract_bool hay key =
     else if j + 5 <= n && String.sub hay j 5 = "false" then Some false
     else None
 
+let decode_hex value =
+  let digit = function
+    | '0' .. '9' as c -> Some (Char.code c - Char.code '0')
+    | 'a' .. 'f' as c -> Some (10 + Char.code c - Char.code 'a')
+    | 'A' .. 'F' as c -> Some (10 + Char.code c - Char.code 'A')
+    | _ -> None
+  in
+  let length = String.length value in
+  if length mod 2 <> 0 then None
+  else
+    let output = Buffer.create (length / 2) in
+    let rec loop index =
+      if index = length then Some (Buffer.contents output)
+      else
+        match digit value.[index], digit value.[index + 1] with
+        | Some high, Some low ->
+          Buffer.add_char output (Char.chr ((high lsl 4) lor low));
+          loop (index + 2)
+        | _ -> None
+    in
+    loop 0
+
+let extract_headers hay =
+  let marker = "(header_" in
+  let length = String.length hay in
+  let rec scan offset found =
+    if offset >= length then List.sort_uniq compare found
+    else
+      match find_sub (String.sub hay offset (length - offset)) marker with
+      | None -> List.sort_uniq compare found
+      | Some relative ->
+        let start = offset + relative + 1 in
+        let rec finish index =
+          if index < length && hay.[index] <> ' ' && hay.[index] <> ')' then
+            finish (index + 1)
+          else index
+        in
+        let stop = finish start in
+        let symbol = String.sub hay start (stop - start) in
+        let found =
+          match extract_bool hay symbol with
+          | Some true ->
+            let encoded = String.sub symbol 7 (String.length symbol - 7) in
+            (match String.index_opt encoded '_' with
+             | None -> found
+             | Some separator ->
+               let name = String.sub encoded 0 separator in
+               let value =
+                 String.sub encoded (separator + 1)
+                   (String.length encoded - separator - 1)
+               in
+               (match decode_hex name, decode_hex value with
+                | Some name, Some value -> (name, value) :: found
+                | _ -> found))
+          | _ -> found
+        in
+        scan stop found
+  in
+  scan 0 []
+
 (* A bitvector value from [get-value]. z3 prints these as #x0a000001 or, for
    widths that are not a multiple of four, #b0101... — both are handled. *)
 let extract_bv hay key =
@@ -136,7 +197,8 @@ let check ?(z3 = "z3") ?emit_smt (smtlib : string) : result =
     let is_anon = Option.value ~default:false (extract_bool out "is_anon") in
     let src_ip = Option.value ~default:0l (extract_bv out "src_ip") in
     let host = Option.value ~default:"" (extract_string out "host") in
-    Violated { path; method_; is_anon; src_ip; host }
+    let headers = extract_headers out in
+    Violated { path; method_; is_anon; src_ip; host; headers }
   else Unknown (String.trim out)
 
 let string_of_result = function

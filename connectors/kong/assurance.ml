@@ -30,9 +30,9 @@ type assessment = {
 let feature code description = { code; description }
 
 let profile =
-  { id = "kong-traditional-http-v2";
+  { id = "kong-traditional-http-v3";
     connector = "kong";
-    version = 2;
+    version = 3;
     target = "Kong Gateway traditional/traditional_compatible HTTP routing";
     modeled =
       [ feature "literal-path-prefix" "literal HTTP path-prefix matching";
@@ -40,6 +40,7 @@ let profile =
         feature "regular-path-regex" "the documented regular subset of Kong path regexes";
         feature "http-method" "HTTP method matching";
         feature "lowercase-host" "lowercase exact and wildcard Host matching";
+        feature "exact-header-match" "case-insensitive exact HTTP header matching, including repeated values";
         feature "traditional-route-priority" "two-layer traditional-router priority without created_at";
         feature "known-auth-plugins" "authentication requirement from Soundcheck's known plugin list";
         feature "known-rate-limit-plugins" "rate-limit coverage from Soundcheck's known plugin list";
@@ -48,7 +49,7 @@ let profile =
         feature "default-deny" "denying fallthrough when no route guard allows a request" ];
     conservative =
       [ feature "route-created-at-tie" "created_at is absent from decK and unresolved route order remains tied";
-        feature "route-headers" "header criteria are over-approximated and the route is left incomparable";
+        feature "route-header-regex" "regex header values are over-approximated and the route is left incomparable";
         feature "route-sni" "SNI criteria are over-approximated and the route is left incomparable";
         feature "route-stream-match" "source/destination criteria are over-approximated and the route is left incomparable";
         feature "uppercase-host" "uppercase route hosts are left incomparable because request hosts are lowercased";
@@ -98,8 +99,13 @@ let plugin_findings ?route service plugins =
 let route_findings (service : Ast.service) (route : Ast.route) =
   let location code detail = finding ~service:service.name ~route:route.name code detail in
   let routing =
-    (if route.has_headers then
-       [ location "route-headers" "route has header matching criteria" ]
+    (if
+       List.exists
+         (fun (_, values) -> Lower.is_header_regex values)
+         (Lower.routable_headers route)
+     then
+       [ location "route-header-regex"
+           "route has a regex header value that is conservatively approximated" ]
      else [])
     @ (if route.snis <> [] then
          [ location "route-sni" "route has SNI matching criteria" ]

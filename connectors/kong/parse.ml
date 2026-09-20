@@ -11,6 +11,12 @@ let to_string = function `String s -> Some s | _ -> None
 let string_list (v : Yaml.value option) : string list =
   match v with Some (`A xs) -> List.filter_map to_string xs | _ -> []
 
+let headers_of (v : Yaml.value option) : (string * string list) list =
+  match v with
+  | Some (`O fields) ->
+    List.map (fun (name, values) -> (name, string_list (Some values))) fields
+  | _ -> []
+
 (* Kong treats a plugin as enabled unless it says otherwise, so an absent or
    non-boolean [enabled] key means true. Only an explicit [false] disables. *)
 let enabled_of (v : Yaml.value) : bool =
@@ -53,7 +59,7 @@ let route_of (v : Yaml.value) : Ast.route =
     plugins = plugins_of (member "plugins" v);
     hosts = string_list (member "hosts" v);
     snis = string_list (member "snis" v);
-    has_headers = (match member "headers" v with Some (`O (_ :: _)) -> true | _ -> false);
+    headers = headers_of (member "headers" v);
     has_sources_or_destinations =
       (match (member "sources" v, member "destinations" v) with
        | Some (`A (_ :: _)), _ | _, Some (`A (_ :: _)) -> true

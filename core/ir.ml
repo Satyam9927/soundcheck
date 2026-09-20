@@ -27,6 +27,7 @@ type condition =
   | Requires_auth
   | Source_in   of Cidr.t
   | Host_matches of Regex.t
+  | Header_has of string * string
   | Not of condition
   | And of condition list
   | Or  of condition list
@@ -86,6 +87,12 @@ let rec matches (c : condition) (r : request) : bool =
   | Requires_auth -> (match r.principal with Authenticated _ -> true | Anonymous -> false)
   | Source_in c -> Cidr.contains c r.source
   | Host_matches re -> Regex.matches_full re r.host
+  | Header_has (name, value) ->
+    List.exists
+      (fun (candidate_name, candidate_value) ->
+        String.lowercase_ascii candidate_name = name
+        && String.lowercase_ascii candidate_value = value)
+      r.context
   | Not c -> not (matches c r)
   | And cs -> List.for_all (fun c -> matches c r) cs
   | Or cs -> List.exists (fun c -> matches c r) cs

@@ -23,6 +23,8 @@ type counterexample = {
       (** IPv4 source address of the violating request, rendered dotted-quad in
           JSON. Meaningful only for properties that constrain it; otherwise the
           solver was free to pick any value. *)
+  headers          : (string * string) list;
+      (** Header memberships required by the symbolic counterexample. *)
   note             : string;  (** human-readable, connector-lifted explanation *)
 }
 (** A concrete violating request, lifted into the connector's vocabulary.
@@ -93,7 +95,7 @@ val schema_version : int
 val to_json : t -> string
 (** The stable, versioned JSON contract:
     {[ { "result": "violated|proved|vacuous|inconsistent|unknown",
-         "schema_version": 7,
+         "schema_version": 8,
          "property": "...",
          "assurance": { "profile": "...",
                          "status": "within_profile|conservative|unsupported",
@@ -102,7 +104,7 @@ val to_json : t -> string
                           "canonical": "..." },
          "clause": { "name": "...", "description": "...",
                      "kind": "must_deny|must_allow" },
-         "counterexample": { "principal", "action", "path", "host",
+         "counterexample": { "principal", "action", "path", "host", "headers",
                              "source_ip", "route", "service",
                              "shadowed_route", "shadowed_service" } } ]}
     Every key is emitted unconditionally, [null] when absent, so consumers never

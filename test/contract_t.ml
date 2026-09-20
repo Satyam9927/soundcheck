@@ -47,7 +47,8 @@ let () =
   in
   check_clause "deny-all violates functionality" deny_all required_anonymous
     (Solve.Violated
-       { path = ""; method_ = ""; is_anon = true; src_ip = 0l; host = "" });
+       { path = ""; method_ = ""; is_anon = true; src_ip = 0l; host = "";
+         headers = [] });
 
   let open_admin : Ir.policy =
     { request_domain = True; rules = [ route "open" ]; default = Deny }
@@ -67,7 +68,8 @@ let () =
   in
   check_clause "every possible winner must allow" ambiguous required_anonymous
     (Solve.Violated
-       { path = ""; method_ = ""; is_anon = true; src_ip = 0l; host = "" });
+       { path = ""; method_ = ""; is_anon = true; src_ip = 0l; host = "";
+         headers = [] });
   let anonymous_admin : Ir.request =
     { principal = Anonymous;
       action = "GET";
@@ -99,7 +101,8 @@ let () =
   check_clause "incomplete match cannot prove functionality" incomplete
     required_anonymous
     (Solve.Violated
-       { path = ""; method_ = ""; is_anon = true; src_ip = 0l; host = "" });
+       { path = ""; method_ = ""; is_anon = true; src_ip = 0l; host = "";
+         headers = [] });
   if Ir.definitely_allows incomplete anonymous_admin then
     failwith "incomplete route match must not establish definite allowance";
 
@@ -124,7 +127,8 @@ let () =
     Smt_encode.overlap_query left right |> Solve.check
     |> expect "overlapping clauses are inconsistent"
          (Solve.Violated
-            { path = ""; method_ = ""; is_anon = true; src_ip = 0l; host = "" })
+            { path = ""; method_ = ""; is_anon = true; src_ip = 0l; host = "";
+              headers = [] })
   | _ -> failwith "expected exactly one safety/functionality pair"
 
 let () =
@@ -189,7 +193,7 @@ let () =
       frozen_spec = None }
   in
   let expected =
-    {|{"result":"inconsistent","schema_version":7,"property":"admin-access","assurance":null,"frozen_spec":null,"clause":{"name":"authenticated-admin-allowed","description":"Authenticated admin traffic is allowed","kind":"must_allow"},"counterexample":null,"reason":"clauses overlap"}|}
+    {|{"result":"inconsistent","schema_version":8,"property":"admin-access","assurance":null,"frozen_spec":null,"clause":{"name":"authenticated-admin-allowed","description":"Authenticated admin traffic is allowed","kind":"must_allow"},"counterexample":null,"reason":"clauses overlap"}|}
   in
   let got = Report.to_json report in
   if got <> expected then

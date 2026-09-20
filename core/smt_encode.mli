@@ -8,7 +8,8 @@
     v0 symbolic request model:
     - [path]    : the resource, as an SMT [String]
     - [method]  : the action, as an SMT [String]
-    - [is_anon] : whether the principal is anonymous, as a [Bool] *)
+    - [is_anon] : whether the principal is anonymous, as a [Bool]
+    - one [Bool] for every exact header-name/value membership used by a policy *)
 
 val cond : Ir.condition -> string
 (** One condition as an SMT-LIB2 boolean over the symbolic request constants.
