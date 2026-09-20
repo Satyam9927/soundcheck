@@ -320,4 +320,6 @@ let to_policy (cfg : Ast.config) : Ir.policy =
         List.concat_map (rules_of_route service) service.routes)
       cfg.services
   in
-  { rules; default = Ir.Deny }
+  { request_domain = Path_normalization.request_domain;
+    rules;
+    default = Ir.Deny }

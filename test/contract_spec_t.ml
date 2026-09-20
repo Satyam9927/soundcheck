@@ -100,4 +100,7 @@ assumptions:
     "contract.assumptions is required";
   expect_error "network unacknowledged source assumption"
     "schema_version: 1\nkind: network-restricted-access\nscope: {path_prefix: /internal, trusted_cidr: 10.0.0.0/8}\nassumptions: {source_ip_integrity: verified-by-soundcheck}\n"
-    "contract.assumptions.source_ip_integrity must be"
+    "contract.assumptions.source_ip_integrity must be";
+  expect_error "non-normalized contract scope"
+    "schema_version: 1\nkind: authenticated-access\nscope: {path_prefix: /admin/../secret}\n"
+    "contract.scope.path_prefix \"/admin/../secret\" is not normalized; use \"/secret\""

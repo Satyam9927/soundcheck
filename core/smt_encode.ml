@@ -99,17 +99,22 @@ let epilogue b =
   Buffer.add_string b "(get-value (path method is_anon src_ip host))\n";
   Buffer.contents b
 
-let condition_query ~name ~description condition =
+let assert_domain b domain =
+  Buffer.add_string b "; the request belongs to the connector's valid domain:\n";
+  Buffer.add_string b (Printf.sprintf "(assert %s)\n" (cond domain))
+
+let condition_query ?(domain = Ir.True) ~name ~description condition =
   let b = Buffer.create 256 in
   preamble b (Printf.sprintf "; property preflight: %s — %s\n" name description);
+  assert_domain b domain;
   Buffer.add_string b "; the property's forbidden request class is inhabited:\n";
   Buffer.add_string b (Printf.sprintf "(assert %s)\n" (cond condition));
   epilogue b
 
-let overlap_query left right =
+let overlap_query ?(domain = Ir.True) left right =
   let left_class = Contract.request_class left in
   let right_class = Contract.request_class right in
-  condition_query
+  condition_query ~domain
     ~name:(Contract.name left ^ "/" ^ Contract.name right)
     ~description:"safety/functionality request-class overlap"
     (Ir.And [ left_class; right_class ])
@@ -154,6 +159,7 @@ let contract_clause_query (p : Ir.policy) (clause : Contract.clause) : string =
   preamble b
     (Printf.sprintf "; contract clause: %s — %s\n"
        (Contract.name clause) (Contract.description clause));
+  assert_domain b p.request_domain;
   Buffer.add_string b "; the request is in the clause's request class:\n";
   Buffer.add_string b
     (Printf.sprintf "(assert %s)\n" (cond (Contract.request_class clause)));
@@ -172,6 +178,7 @@ let contract_clause_query (p : Ir.policy) (clause : Contract.clause) : string =
 let to_smtlib (p : Ir.policy) (prop : Property.t) : string =
   let b = Buffer.create 512 in
   preamble b (Printf.sprintf "; property: %s — %s\n" prop.name prop.description);
+  assert_domain b p.request_domain;
   Buffer.add_string b "; the request is in the property's forbidden class:\n";
   Buffer.add_string b (Printf.sprintf "(assert %s)\n" (cond prop.forbidden_when));
   Buffer.add_string b "; ... yet the policy would allow it:\n";
@@ -191,6 +198,7 @@ let shadowing_query (p : Ir.policy) (pair : Shadowing.pair) : string =
   preamble b
     (Printf.sprintf "; property: %s — route %S shadowed by route %S\n"
        Shadowing.name k.Ir.id i.Ir.id);
+  assert_domain b p.request_domain;
   Buffer.add_string b "; the higher-priority route serves the request:\n";
   Buffer.add_string b (Printf.sprintf "(assert %s)\n" (selected p.rules i));
   Buffer.add_string b "; the shadowed route was written to handle it:\n";

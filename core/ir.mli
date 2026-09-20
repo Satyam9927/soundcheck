@@ -120,8 +120,11 @@ type rule = {
 }
 
 type policy = {
-  rules   : rule list;
-  default : decision;         (** decision when no rule applies *)
+  request_domain : condition;
+      (** Connector-defined requests that can reach the target decision
+          function. Every solver query is restricted to this domain. *)
+  rules          : rule list;
+  default        : decision;  (** decision when no rule applies *)
 }
 
 val matches : condition -> request -> bool
@@ -133,7 +136,8 @@ val selected : policy -> request -> rule -> bool
     incomparable — are all selectable. *)
 
 val evaluate : policy -> request -> decision
-(** Reference (ground-truth) decision function. A rule counts when it both
+(** Reference (ground-truth) decision function. Requests outside
+    [request_domain] deny. Within it, a rule counts when it both
     {!selected} the request and permits it (its guard holds); those are then
     combined {b deny-overrides}: [Deny] if any is [Deny]; else [Allow] if any is
     [Allow]; else [default]. Kept in step with {!Smt_encode.allowed_formula} —

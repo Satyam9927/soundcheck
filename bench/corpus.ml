@@ -113,7 +113,7 @@ let mask (key : string) (json : string) : string =
   Buffer.contents buf
 
 let mask_witness json =
-  json |> mask "path" |> mask "action" |> mask "source_ip"
+  json |> mask "path" |> mask "action" |> mask "source_ip" |> mask "host"
 
 let request_of (ce : Report.counterexample) : Ir.request =
   { principal =

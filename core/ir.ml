@@ -65,8 +65,9 @@ type rule = {
 }
 
 type policy = {
-  rules   : rule list;
-  default : decision;
+  request_domain : condition;
+  rules          : rule list;
+  default        : decision;
 }
 
 let starts_with ~prefix s =
@@ -99,22 +100,25 @@ let selected (p : policy) (r : request) (rule : rule) : bool =
           p.rules)
 
 let evaluate (p : policy) (r : request) : decision =
-  let matching =
-    List.filter
-      (fun rule -> selected p r rule && matches rule.guard r)
-      p.rules
-  in
-  if List.exists (fun rule -> rule.decision = Deny) matching then Deny
-  else if List.exists (fun rule -> rule.decision = Allow) matching then Allow
-  else p.default
+  if not (matches p.request_domain r) then Deny
+  else
+    let matching =
+      List.filter
+        (fun rule -> selected p r rule && matches rule.guard r)
+        p.rules
+    in
+    if List.exists (fun rule -> rule.decision = Deny) matching then Deny
+    else if List.exists (fun rule -> rule.decision = Allow) matching then Allow
+    else p.default
 
 let definitely_allows (p : policy) (r : request) : bool =
-  match List.filter (selected p r) p.rules with
-  | [] -> p.default = Allow
-  | possible_winners ->
-    List.for_all
-      (fun rule -> rule.decision = Allow && matches rule.guard r)
-      possible_winners
+  matches p.request_domain r
+  && match List.filter (selected p r) p.rules with
+     | [] -> p.default = Allow
+     | possible_winners ->
+       List.for_all
+         (fun rule -> rule.decision = Allow && matches rule.guard r)
+         possible_winners
 
 let string_of_decision = function Allow -> "Allow" | Deny -> "Deny"
 

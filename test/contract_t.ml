@@ -41,13 +41,15 @@ let check_clause label policy clause want =
   |> Solve.check |> expect label want
 
 let () =
-  let deny_all : Ir.policy = { rules = []; default = Deny } in
+  let deny_all : Ir.policy =
+    { request_domain = True; rules = []; default = Deny }
+  in
   check_clause "deny-all violates functionality" deny_all required_anonymous
     (Solve.Violated
        { path = ""; method_ = ""; is_anon = true; src_ip = 0l; host = "" });
 
   let open_admin : Ir.policy =
-    { rules = [ route "open" ]; default = Deny }
+    { request_domain = True; rules = [ route "open" ]; default = Deny }
   in
   check_clause "known open winner proves functionality" open_admin
     required_anonymous Solve.Proved;
@@ -56,7 +58,8 @@ let () =
      allowed. Functionality must consider that the tied auth rule may be Kong's
      real winner, in which case an anonymous request is denied. *)
   let ambiguous : Ir.policy =
-    { rules =
+    { request_domain = True;
+      rules =
         [ route ~guard:Ir.True "open";
           route ~guard:Ir.Requires_auth "auth-required" ];
       default = Deny }
@@ -76,7 +79,8 @@ let () =
     failwith "ambiguous rejecting winner must prevent definite allowance";
 
   let known_open_winner : Ir.policy =
-    { rules =
+    { request_domain = True;
+      rules =
         [ route ~rank:2 "open";
           route ~rank:1 ~guard:Ir.Requires_auth "auth-required" ];
       default = Deny }
@@ -111,7 +115,9 @@ let () =
   | _ -> failwith "expected exactly one safety/functionality pair"
 
 let () =
-  let deny_all : Ir.policy = { rules = []; default = Deny } in
+  let deny_all : Ir.policy =
+    { request_domain = True; rules = []; default = Deny }
+  in
   (match Contract_verify.run deny_all (contract [ required_anonymous ]) with
    | Contract_verify.Violated (clause, _) ->
      if Contract.name clause <> Contract.name required_anonymous then
@@ -144,7 +150,9 @@ let () =
       (Ir.And [ Ir.Path_prefix "/admin"; Ir.Requires_auth ])
   in
   let guarded : Ir.policy =
-    { rules = [ route ~guard:Ir.Requires_auth "admin" ]; default = Deny }
+    { request_domain = True;
+      rules = [ route ~guard:Ir.Requires_auth "admin" ];
+      default = Deny }
   in
   (match
      Contract_verify.run guarded
