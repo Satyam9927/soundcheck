@@ -24,8 +24,8 @@ let contains haystack needle =
   needle_length = 0 || search 0
 
 let () =
-  if Assurance.profile.id <> "kong-traditional-http-v1"
-     || Assurance.profile.version <> 1
+  if Assurance.profile.id <> "kong-traditional-http-v2"
+     || Assurance.profile.version <> 2
   then failwith "assurance profile identity changed";
 
   let within =
@@ -58,18 +58,19 @@ let () =
     failwith "unsupported regex finding missing";
 
   let expected_json =
-    {|{"schema_version":1,"id":"kong-traditional-http-v1","connector":"kong","version":1,"target":"Kong Gateway traditional/traditional_compatible HTTP routing","modeled":[{"code":"literal-path-prefix","description":"literal HTTP path-prefix matching"},{"code":"regular-path-regex","description":"the documented regular subset of Kong path regexes"},{"code":"http-method","description":"HTTP method matching"},{"code":"lowercase-host","description":"lowercase exact and wildcard Host matching"},{"code":"traditional-route-priority","description":"two-layer traditional-router priority without created_at"},{"code":"known-auth-plugins","description":"authentication requirement from Soundcheck's known plugin list"},{"code":"known-rate-limit-plugins","description":"rate-limit coverage from Soundcheck's known plugin list"},{"code":"ipv4-ip-restriction","description":"IPv4 ip-restriction allow and deny guards over Kong's derived client IP"},{"code":"default-admin-ports","description":"Admin API recognition on default ports 8001 and 8444"},{"code":"default-deny","description":"denying fallthrough when no route guard allows a request"}],"conservative":[{"code":"request-path-normalization","description":"symbolic paths are not restricted to Kong-normalized request paths"},{"code":"route-created-at-tie","description":"created_at is absent from decK and unresolved route order remains tied"},{"code":"route-headers","description":"header criteria are over-approximated and the route is left incomparable"},{"code":"route-sni","description":"SNI criteria are over-approximated and the route is left incomparable"},{"code":"route-stream-match","description":"source/destination criteria are over-approximated and the route is left incomparable"},{"code":"uppercase-host","description":"uppercase route hosts are left incomparable because request hosts are lowercased"},{"code":"unrecognized-plugin","description":"unrecognized plugins provide no modeled auth or rate-limit behavior"},{"code":"invalid-ip-cidr","description":"IPv6 or malformed ip-restriction entries are dropped, weakening the guard"}],"unsupported":[{"code":"unsupported-path-regex","description":"non-regular or untranslated regex constructs make the whole result unknown"}]}|}
+    {|{"schema_version":1,"id":"kong-traditional-http-v2","connector":"kong","version":2,"target":"Kong Gateway traditional/traditional_compatible HTTP routing","modeled":[{"code":"literal-path-prefix","description":"literal HTTP path-prefix matching"},{"code":"normalized-request-path","description":"Kong-normalized request-path domain and literal route validation"},{"code":"regular-path-regex","description":"the documented regular subset of Kong path regexes"},{"code":"http-method","description":"HTTP method matching"},{"code":"lowercase-host","description":"lowercase exact and wildcard Host matching"},{"code":"traditional-route-priority","description":"two-layer traditional-router priority without created_at"},{"code":"known-auth-plugins","description":"authentication requirement from Soundcheck's known plugin list"},{"code":"known-rate-limit-plugins","description":"rate-limit coverage from Soundcheck's known plugin list"},{"code":"ipv4-ip-restriction","description":"IPv4 ip-restriction allow and deny guards over Kong's derived client IP"},{"code":"default-admin-ports","description":"Admin API recognition on default ports 8001 and 8444"},{"code":"default-deny","description":"denying fallthrough when no route guard allows a request"}],"conservative":[{"code":"route-created-at-tie","description":"created_at is absent from decK and unresolved route order remains tied"},{"code":"route-headers","description":"header criteria are over-approximated and the route is left incomparable"},{"code":"route-sni","description":"SNI criteria are over-approximated and the route is left incomparable"},{"code":"route-stream-match","description":"source/destination criteria are over-approximated and the route is left incomparable"},{"code":"uppercase-host","description":"uppercase route hosts are left incomparable because request hosts are lowercased"},{"code":"unrecognized-plugin","description":"unrecognized plugins provide no modeled auth or rate-limit behavior"},{"code":"invalid-ip-cidr","description":"IPv6 or malformed ip-restriction entries are dropped, weakening the guard"}],"unsupported":[{"code":"unsupported-path-regex","description":"non-regular or untranslated regex constructs make the whole result unknown"}]}|}
   in
   let json = Assurance.profile_json () in
   if json <> expected_json then failwith "Kong assurance profile JSON changed";
   let expected_human =
-    {|KONG ASSURANCE PROFILE  kong-traditional-http-v1
+    {|KONG ASSURANCE PROFILE  kong-traditional-http-v2
 Connector: kong
-Profile version: 1
+Profile version: 2
 Target: Kong Gateway traditional/traditional_compatible HTTP routing
 
 Modeled:
   - literal-path-prefix: literal HTTP path-prefix matching
+  - normalized-request-path: Kong-normalized request-path domain and literal route validation
   - regular-path-regex: the documented regular subset of Kong path regexes
   - http-method: HTTP method matching
   - lowercase-host: lowercase exact and wildcard Host matching
@@ -81,7 +82,6 @@ Modeled:
   - default-deny: denying fallthrough when no route guard allows a request
 
 Conservative:
-  - request-path-normalization: symbolic paths are not restricted to Kong-normalized request paths
   - route-created-at-tie: created_at is absent from decK and unresolved route order remains tied
   - route-headers: header criteria are over-approximated and the route is left incomparable
   - route-sni: SNI criteria are over-approximated and the route is left incomparable
@@ -106,7 +106,7 @@ Unsupported:
   in
   (match report.Soundcheck_core.Report.assurance with
    | Some assurance
-     when assurance.profile = "kong-traditional-http-v1"
+     when assurance.profile = "kong-traditional-http-v2"
           && assurance.status = Soundcheck_core.Report.Conservative -> ()
    | _ -> failwith "verification report omitted assurance assessment");
   let report_json = Soundcheck_core.Report.to_json report in
@@ -114,6 +114,6 @@ Unsupported:
      || not (contains report_json "\"code\":\"route-headers\"")
   then failwith "report JSON omitted assurance identity or finding";
   let human = Soundcheck_core.Report.to_human report in
-  if not (contains human "Assurance: kong-traditional-http-v1 (conservative)")
+  if not (contains human "Assurance: kong-traditional-http-v2 (conservative)")
      || not (contains human "route-headers")
   then failwith "human report omitted assurance assessment"

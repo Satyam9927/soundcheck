@@ -16,12 +16,14 @@ val cond : Ir.condition -> string
     without building a whole policy. *)
 
 val condition_query :
+  ?domain:Ir.condition ->
   name:string -> description:string -> Ir.condition -> string
 (** Full SMT-LIB2 script asking whether a condition is satisfiable. Used to
     reject a must-deny property whose forbidden request class is empty before
     interpreting [unsat] against a policy as a proof. *)
 
-val overlap_query : Contract.clause -> Contract.clause -> string
+val overlap_query :
+  ?domain:Ir.condition -> Contract.clause -> Contract.clause -> string
 (** Ask whether the request classes of two clauses overlap. A satisfiable result
     for a [Must_deny]/[Must_allow] pair means the contract is inconsistent. *)
 

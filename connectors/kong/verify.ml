@@ -207,9 +207,26 @@ let run_shadowing ?emit_smt (cfg : Ast.config) (policy : Ir.policy) :
 
 let run ?emit_smt ~(property : property) (config : string) :
     (Report.t, string) result =
+  let property_scope =
+    match property with
+    | No_anonymous_access path_prefix
+    | Authenticated_access { path_prefix; _ }
+    | Network_restricted_access { path_prefix; _ } -> Some path_prefix
+    | Rate_limit_on_public | No_shadowed_routes | Admin_api_not_reachable _ -> None
+  in
+  match property_scope with
+  | Some path_prefix
+    when not (Path_normalization.is_normalized_literal path_prefix) ->
+    Error
+      (Printf.sprintf "property path_prefix %S is not normalized; use %S"
+         path_prefix (Path_normalization.normalize_literal path_prefix))
+  | _ ->
   match Parse.parse_string config with
   | Error e -> Error e
   | Ok cfg ->
+    (match Validate.check cfg with
+     | Error _ as error -> error
+     | Ok () ->
     let assurance = report_assurance (Assurance.assess cfg) in
     let contract, show_source, lift_denied =
       match property with
@@ -255,8 +272,8 @@ let run ?emit_smt ~(property : property) (config : string) :
         | None -> (run_shadowing ?emit_smt cfg policy, None)
         | Some (prop, lift) ->
           let preflight =
-            Smt_encode.condition_query ~name:prop.name
-              ~description:prop.description prop.forbidden_when
+            Smt_encode.condition_query ~domain:policy.request_domain
+              ~name:prop.name ~description:prop.description prop.forbidden_when
           in
           match Solve.check ?emit_smt preflight with
           | Solve.Proved -> (Report.Vacuous, None)
@@ -273,4 +290,4 @@ let run ?emit_smt ~(property : property) (config : string) :
            property_description = description;
            assurance = Some assurance;
            clause;
-           frozen_spec = None }
+           frozen_spec = None })

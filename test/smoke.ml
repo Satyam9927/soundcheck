@@ -24,10 +24,14 @@ let () =
          targets_admin = false }
   in
   let insecure : Ir.policy =
-    { rules = [ route ~guard:Ir.True ]; default = Ir.Deny }
+    { request_domain = Ir.True;
+      rules = [ route ~guard:Ir.True ];
+      default = Ir.Deny }
   in
   let secure : Ir.policy =
-    { rules = [ route ~guard:Ir.Requires_auth ]; default = Ir.Deny }
+    { request_domain = Ir.True;
+      rules = [ route ~guard:Ir.Requires_auth ];
+      default = Ir.Deny }
   in
   let prop = Property.no_anonymous_access ~path_prefix:"/admin" in
   run "insecure config" insecure prop;

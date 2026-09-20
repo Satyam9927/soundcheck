@@ -71,7 +71,9 @@ let () =
          source = ce.source_ip;
          host = ce.host }
      in
-     let policy : Ir.policy = { rules = []; default = Deny } in
+     let policy : Ir.policy =
+       { request_domain = True; rules = []; default = Deny }
+     in
      if Ir.definitely_allows policy request then
        failwith "deny-all counterexample was not actually blocked"
    | _ -> failwith "deny-all must violate the functionality clause");

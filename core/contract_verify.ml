@@ -5,26 +5,26 @@ type result =
   | Violated of Contract.clause * Solve.model
   | Unknown of string
 
-let rec check_inhabited = function
+let rec check_inhabited domain = function
   | [] -> None
   | clause :: rest ->
     let query =
-      Smt_encode.condition_query ~name:(Contract.name clause)
+      Smt_encode.condition_query ~domain ~name:(Contract.name clause)
         ~description:(Contract.description clause)
         (Contract.request_class clause)
     in
     (match Solve.check query with
      | Solve.Proved -> Some (Vacuous clause)
      | Solve.Unknown reason -> Some (Unknown reason)
-     | Solve.Violated _ -> check_inhabited rest)
+     | Solve.Violated _ -> check_inhabited domain rest)
 
-let rec check_consistent = function
+let rec check_consistent domain = function
   | [] -> None
   | (safety, functionality) :: rest ->
-    (match Solve.check (Smt_encode.overlap_query safety functionality) with
+    (match Solve.check (Smt_encode.overlap_query ~domain safety functionality) with
      | Solve.Violated _ -> Some (Inconsistent (safety, functionality))
      | Solve.Unknown reason -> Some (Unknown reason)
-     | Solve.Proved -> check_consistent rest)
+     | Solve.Proved -> check_consistent domain rest)
 
 let rec check_clauses policy = function
   | [] -> Proved
@@ -35,9 +35,12 @@ let rec check_clauses policy = function
      | Solve.Proved -> check_clauses policy rest)
 
 let run policy contract =
-  match check_inhabited contract.Contract.clauses with
+  match check_inhabited policy.Ir.request_domain contract.Contract.clauses with
   | Some result -> result
   | None ->
-    (match check_consistent (Contract.safety_functionality_overlaps contract) with
+    (match
+       check_consistent policy.request_domain
+         (Contract.safety_functionality_overlaps contract)
+     with
      | Some result -> result
      | None -> check_clauses policy contract.clauses)

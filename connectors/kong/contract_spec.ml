@@ -55,6 +55,12 @@ let parse_scope fields allowed =
      | Ok () ->
        match required_string "contract.scope" "path_prefix" scope with
        | Error _ as error -> error
+       | Ok path_prefix
+         when not (Path_normalization.is_normalized_literal path_prefix) ->
+         Error
+           (Printf.sprintf
+              "contract.scope.path_prefix %S is not normalized; use %S"
+              path_prefix (Path_normalization.normalize_literal path_prefix))
        | Ok path_prefix ->
          match optional_string "contract.scope" "method" scope with
          | Error _ as error -> error

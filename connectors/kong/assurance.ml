@@ -30,12 +30,13 @@ type assessment = {
 let feature code description = { code; description }
 
 let profile =
-  { id = "kong-traditional-http-v1";
+  { id = "kong-traditional-http-v2";
     connector = "kong";
-    version = 1;
+    version = 2;
     target = "Kong Gateway traditional/traditional_compatible HTTP routing";
     modeled =
       [ feature "literal-path-prefix" "literal HTTP path-prefix matching";
+        feature "normalized-request-path" "Kong-normalized request-path domain and literal route validation";
         feature "regular-path-regex" "the documented regular subset of Kong path regexes";
         feature "http-method" "HTTP method matching";
         feature "lowercase-host" "lowercase exact and wildcard Host matching";
@@ -46,8 +47,7 @@ let profile =
         feature "default-admin-ports" "Admin API recognition on default ports 8001 and 8444";
         feature "default-deny" "denying fallthrough when no route guard allows a request" ];
     conservative =
-      [ feature "request-path-normalization" "symbolic paths are not restricted to Kong-normalized request paths";
-        feature "route-created-at-tie" "created_at is absent from decK and unresolved route order remains tied";
+      [ feature "route-created-at-tie" "created_at is absent from decK and unresolved route order remains tied";
         feature "route-headers" "header criteria are over-approximated and the route is left incomparable";
         feature "route-sni" "SNI criteria are over-approximated and the route is left incomparable";
         feature "route-stream-match" "source/destination criteria are over-approximated and the route is left incomparable";
