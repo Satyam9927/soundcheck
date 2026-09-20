@@ -1,0 +1,9 @@
+# An unconditional request-termination plugin intercepts the selected route and
+# prevents the request from reaching its upstream service.
+services:
+  - name: api
+    routes:
+      - name: admin-maintenance
+        paths: [/admin]
+        plugins:
+          - name: request-termination
