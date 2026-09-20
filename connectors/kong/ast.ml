@@ -47,4 +47,11 @@ type service = {
   plugins : plugin list;   (* service-level plugins (apply to all its routes) *)
 }
 
-type config = { services : service list }
+type config = {
+  services       : service list;
+  global_plugins : plugin list;
+      (* Root-level plugins with no route/service/consumer relationship. *)
+  scoped_plugins : plugin list;
+      (* Root-level plugins carrying an explicit relationship. Their reference
+         form is outside the current nested-service AST and is rejected. *)
+}

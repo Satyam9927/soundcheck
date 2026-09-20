@@ -74,4 +74,11 @@ let reason (fs : finding list) : string =
     (String.concat "; " (List.map describe fs))
 
 let check (cfg : Ast.config) : (unit, string) result =
-  match findings cfg with [] -> Ok () | fs -> Error (reason fs)
+  match cfg.scoped_plugins with
+  | plugin :: _ ->
+    Error
+      (Printf.sprintf
+         "unsupported fragment: root-level plugin %S has an explicit route, service, or consumer relationship; use nested route/service plugins or a relationship-free global plugin"
+         plugin.name)
+  | [] ->
+    (match findings cfg with [] -> Ok () | fs -> Error (reason fs))

@@ -107,9 +107,10 @@ let resolve (cfg : Ast.config) :
         fun m ->
           Lift.counterexample
             ~culprit:(fun s r ->
-              not (Lower.requires_auth s r) && not (Lower.rate_limited s r))
+              not (Lower.requires_auth cfg s r)
+              && not (Lower.rate_limited cfg s r))
             ~missing:
-              "no rate-limiting plugin is attached to the route or its service."
+              "no rate-limiting plugin is attached at route, service, or global scope."
             cfg m )
   | Admin_api_not_reachable trusted ->
     Some

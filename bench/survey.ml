@@ -77,7 +77,15 @@ let () =
   (* Everything the connector claims to recognise, so "unknown" below means
      genuinely unrecognised rather than merely uncommon. *)
   let known_plugin n =
-    Lower.is_auth_plugin n || Lower.is_rate_limit_plugin n || n = "ip-restriction"
+    Lower.is_auth_plugin n || Lower.is_rate_limit_plugin n
+    || List.mem n [ "ip-restriction"; "request-termination" ]
+  in
+  let count_plugin (plugin : Yaml.value) =
+    match member "name" plugin with
+    | Some (`String name) ->
+      bump plugins name;
+      if not (known_plugin name) then bump unknown_plugins name
+    | _ -> ()
   in
 
   List.iter
@@ -92,6 +100,7 @@ let () =
         if not looks_like_deck then ()
         else begin
           incr deck_files;
+          List.iter count_plugin (seq (member "plugins" doc));
           List.iter
             (fun sv ->
               incr services;
@@ -116,14 +125,7 @@ let () =
                     if p = "8001" || p = "8444" then incr admin_upstreams
                   | None -> ())
                | _ -> ());
-              List.iter
-                (fun (p : Yaml.value) ->
-                  match member "name" p with
-                  | Some (`String n) ->
-                    bump plugins n;
-                    if not (known_plugin n) then bump unknown_plugins n
-                  | _ -> ())
-                (seq (member "plugins" sv));
+              List.iter count_plugin (seq (member "plugins" sv));
               List.iter
                 (fun rt ->
                   incr routes;
@@ -132,14 +134,7 @@ let () =
                   if str_seq (member "snis" rt) <> [] then incr with_snis;
                   if str_seq (member "methods" rt) <> [] then incr with_methods;
                   if member "regex_priority" rt <> None then incr regex_priority_set;
-                  List.iter
-                    (fun (p : Yaml.value) ->
-                      match member "name" p with
-                      | Some (`String n) ->
-                        bump plugins n;
-                        if not (known_plugin n) then bump unknown_plugins n
-                      | _ -> ())
-                    (seq (member "plugins" rt));
+                  List.iter count_plugin (seq (member "plugins" rt));
                   List.iter
                     (fun path ->
                       incr paths_total;

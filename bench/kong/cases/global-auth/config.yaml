@@ -1,0 +1,8 @@
+# A relationship-free root plugin is global and applies to every selected route.
+plugins:
+  - name: key-auth
+services:
+  - name: api
+    routes:
+      - name: admin
+        paths: [/admin]

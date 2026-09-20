@@ -57,6 +57,10 @@
  (name request_termination_t)
  (libraries soundcheck_core soundcheck_kong))
 
+(test
+ (name global_plugin_t)
+ (libraries soundcheck_core soundcheck_kong))
+
 (executable
  (name profile_cli_t)
  (libraries soundcheck_kong unix))
