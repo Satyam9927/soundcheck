@@ -67,6 +67,19 @@ let property_of dir : Verify.property * validation =
     ( Verify.Authenticated_access { path_prefix; method_; host },
       Contract
         (Verify.authenticated_access_contract ~path_prefix ~method_ ~host) )
+  | "network-restricted-access" ->
+    let path_prefix = Option.value ~default:"/internal" (optional dir "path-prefix") in
+    let method_ = optional dir "method" in
+    let host = optional dir "host" in
+    let raw_cidr = Option.value ~default:"10.0.0.0/8" (optional dir "trusted-cidr") in
+    let trusted_cidr =
+      match Cidr.parse raw_cidr with Ok cidr -> cidr | Error error -> failwith error
+    in
+    ( Verify.Network_restricted_access
+        { path_prefix; method_; host; trusted_cidr },
+      Contract
+        (Verify.network_restricted_access_contract ~path_prefix ~method_ ~host
+           ~trusted_cidr) )
   | other -> failwith (Printf.sprintf "%s: unknown property %S" dir other)
 
 (* Replace the string value of ["key"] with a placeholder. The JSON comes from our
@@ -99,7 +112,8 @@ let mask (key : string) (json : string) : string =
   go 0;
   Buffer.contents buf
 
-let mask_witness json = json |> mask "path" |> mask "action"
+let mask_witness json =
+  json |> mask "path" |> mask "action" |> mask "source_ip"
 
 let request_of (ce : Report.counterexample) : Ir.request =
   { principal =

@@ -118,17 +118,33 @@ usage: soundcheck verify <config.yaml> [--contract CONTRACT.yaml]
                                        [--format human|json] [--emit-smt PATH]
   --property     no-anonymous-access (default) | rate-limit-on-public
                  | no-shadowed-routes | admin-api-not-reachable
-                 | authenticated-access
+                 | authenticated-access | network-restricted-access
   --path-prefix  path scope for access properties (default /admin)
-  --trusted-cidr for admin-api-not-reachable (default 127.0.0.1/32)
-  --method       exact method for authenticated-access (default all)
-  --host         exact host for authenticated-access (default all)
+  --trusted-cidr trusted IPv4 block; required for network-restricted-access
+                 (admin-api-not-reachable default 127.0.0.1/32)
+  --method       exact method for paired contracts (default all)
+  --host         exact host for paired contracts (default all)
   --format       human (default) | json
   --emit-smt     write a single-property SMT-LIB2 query to PATH (not contracts)
 
 usage: soundcheck profile kong [--format human|json]
 
 usage: soundcheck mcp [--contract CONTRACT.yaml]
+```
+
+Network-restricted intent also freezes the trusted block and requires an explicit
+acknowledgement that the deployment—not Soundcheck—protects Kong's derived client IP:
+
+```yaml
+schema_version: 1
+kind: network-restricted-access
+scope:
+  path_prefix: /internal
+  method: GET
+  host: internal.example
+  trusted_cidr: 10.0.0.0/8
+assumptions:
+  source_ip_integrity: externally-enforced
 ```
 
 `--contract` cannot be combined with property or scope flags. Contract files are
@@ -204,6 +220,14 @@ config being repaired. Contract reports identify the failing clause as
 queries, `--emit-smt` currently rejects it rather than emitting an incomplete
 audit artifact.
 
+`network-restricted-access` is also paired: every request outside the trusted CIDR
+must be denied, while authenticated requests inside it must be definitely allowed.
+The latter preserves useful service rather than accepting a deny-all repair. Soundcheck
+models the client IP Kong supplies to the policy decision; it does not inspect
+`real_ip_header`, `trusted_ips`, or the surrounding proxy topology. The required
+`source_ip_integrity: externally-enforced` assumption makes that boundary part of the
+reviewed and frozen contract identity instead of leaving it implicit.
+
 On success, `"result": "proved"` with `"counterexample": null`. If a property's
 forbidden request class is empty, Soundcheck instead returns `"result": "vacuous"`;
 this is not a proof about the config and exits nonzero. A config outside the supported
@@ -258,6 +282,7 @@ against the shared decision IR, so it applies to every connector that lowers int
 | `no-shadowed-routes` | shipped | Does a permissive route intercept traffic a stricter route was written to handle? |
 | `admin-api-not-reachable` | shipped | Can an *anonymous* request from outside a trusted address block reach a route proxying the Admin API? |
 | `authenticated-access` | shipped | Are anonymous requests denied while authenticated requests remain definitely allowed in one explicit scope? |
+| `network-restricted-access` | shipped | Are requests outside a trusted IPv4 block denied while authenticated requests inside it remain definitely allowed? |
 
 `rate-limit-on-public` is encoded with a reduced-reachability filter on allow rules: the
 solver is asked whether a request is reachable *specifically via an unthrottled rule*.

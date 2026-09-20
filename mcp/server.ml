@@ -115,7 +115,8 @@ let verify_tool () =
                 J.arr
                   [ J.str "no-anonymous-access"; J.str "rate-limit-on-public";
                     J.str "no-shadowed-routes"; J.str "admin-api-not-reachable";
-                    J.str "authenticated-access" ];
+                    J.str "authenticated-access";
+                    J.str "network-restricted-access" ];
                 "description",
                 J.str
                   "Invariant to verify (default no-anonymous-access): \
@@ -130,36 +131,39 @@ let verify_tool () =
                    trusted_cidr may reach a route proxying the Kong Admin API; \
                    authenticated-access = anonymous requests denied and \
                    authenticated requests allowed for the frozen path/method/host \
-                   scope." ];
+                   scope; network-restricted-access = all requests outside \
+                   trusted_cidr denied and authenticated requests inside it \
+                   allowed." ];
             "path_prefix",
             J.obj
               [ "type", J.str "string";
                 "description",
                 J.str
                   "For no-anonymous-access: the path prefix that must require \
-                   authentication. For authenticated-access: the frozen path \
-                   scope (default /admin)." ];
+                   authentication. For paired contracts: the frozen path scope \
+                   (default /admin)." ];
             "method",
             J.obj
               [ "type", J.str "string";
                 "description",
                 J.str
-                  "Optional exact HTTP method for authenticated-access. Omit to \
+                  "Optional exact HTTP method for paired contracts. Omit to \
                    require the contract for all methods." ];
             "host",
             J.obj
               [ "type", J.str "string";
                 "description",
                 J.str
-                  "Optional exact Host for authenticated-access. Omit to require \
-                   the contract for all hosts." ];
+                  "Optional exact Host for paired contracts. Omit to require the \
+                   contract for all hosts." ];
             "trusted_cidr",
             J.obj
               [ "type", J.str "string";
                 "description",
                 J.str
-                  "For admin-api-not-reachable: the IPv4 block allowed to reach \
-                   the admin API (default 127.0.0.1/32)." ] ];
+                  "Trusted IPv4 block. Required for network-restricted-access; \
+                   for admin-api-not-reachable defaults to 127.0.0.1/32. Source \
+                   IP integrity depends on Kong's trusted-proxy configuration." ] ];
         "required", J.arr [ J.str "config" ] ]
   in
   J.obj
@@ -168,7 +172,8 @@ let verify_tool () =
       J.str
         "Verify a Kong decK config against a security property \
          (no-anonymous-access, rate-limit-on-public, no-shadowed-routes, \
-         admin-api-not-reachable, or authenticated-access). \
+         admin-api-not-reachable, authenticated-access, or \
+         network-restricted-access). \
          Returns the stable JSON result contract: result = proved | violated | \
          vacuous | inconsistent | unknown, with a concrete counterexample \
          (principal / method / \
@@ -199,7 +204,7 @@ let frozen_verify_tool (contract : Contract_spec.t) =
         (Printf.sprintf
            "Verify replacement config against the immutable %s contract loaded \
             at server startup. The specification cannot be changed by this tool."
-           contract.kind);
+           (Contract_spec.kind_name contract.kind));
       "inputSchema", input_schema ]
 
 let tools_list_result ?contract () =
@@ -261,6 +266,19 @@ let tool_call_manual json =
                { path_prefix;
                  method_ = string_field "method" args;
                  host = string_field "host" args })
+        | "network-restricted-access" ->
+          (match string_field "trusted_cidr" args with
+           | None -> None
+           | Some raw ->
+             (match Cidr.parse raw with
+              | Error _ -> None
+              | Ok trusted_cidr ->
+                Some
+                  (Verify.Network_restricted_access
+                     { path_prefix;
+                       method_ = string_field "method" args;
+                       host = string_field "host" args;
+                       trusted_cidr })))
         | _ -> None
       in
       (match property with
@@ -269,8 +287,8 @@ let tool_call_manual json =
            ("unknown property: " ^ prop_name
           ^ " (expected \
              no-anonymous-access|rate-limit-on-public|no-shadowed-routes|\
-             admin-api-not-reachable|authenticated-access, and a valid \
-             trusted_cidr)")
+             admin-api-not-reachable|authenticated-access|\
+             network-restricted-access, and a valid trusted_cidr where required)")
        | Some property -> (
          match Verify.run ~property config with
          | Error e -> tool_error ("config parse error: " ^ e)

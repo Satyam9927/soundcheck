@@ -22,24 +22,34 @@ type property =
       host        : string option;
     }
       (** paired contract: anonymous denied and authenticated allowed *)
+  | Network_restricted_access of {
+      path_prefix  : string;
+      method_      : string option;
+      host         : string option;
+      trusted_cidr : Cidr.t;
+    }
+      (** paired contract: untrusted sources denied and authenticated trusted
+          sources allowed *)
+
+let request_scope ~path_prefix ~method_ ~host =
+  Ir.And
+    ([ Ir.Path_prefix path_prefix ]
+     @ Option.to_list (Option.map (fun method_ -> Ir.Method_is method_) method_)
+     @ Option.to_list
+         (Option.map
+            (fun host ->
+              Ir.Host_matches (Regex.Lit (String.lowercase_ascii host)))
+            host))
+
+let scope_description ~path_prefix ~method_ ~host =
+  String.concat ", "
+    ([ "path prefix " ^ path_prefix ]
+     @ Option.to_list (Option.map (fun method_ -> "method " ^ method_) method_)
+     @ Option.to_list (Option.map (fun host -> "host " ^ host) host))
 
 let authenticated_access_contract ~path_prefix ~method_ ~host : Contract.t =
-  let scope =
-    Ir.And
-      ([ Ir.Path_prefix path_prefix ]
-       @ Option.to_list (Option.map (fun method_ -> Ir.Method_is method_) method_)
-       @ Option.to_list
-           (Option.map
-              (fun host ->
-                Ir.Host_matches (Regex.Lit (String.lowercase_ascii host)))
-              host))
-  in
-  let scope_description =
-    String.concat ", "
-      ([ "path prefix " ^ path_prefix ]
-       @ Option.to_list (Option.map (fun method_ -> "method " ^ method_) method_)
-       @ Option.to_list (Option.map (fun host -> "host " ^ host) host))
-  in
+  let scope = request_scope ~path_prefix ~method_ ~host in
+  let scope_description = scope_description ~path_prefix ~method_ ~host in
   { Contract.name = "authenticated-access";
     description =
       "Anonymous requests must be denied and authenticated requests allowed for "
@@ -52,6 +62,29 @@ let authenticated_access_contract ~path_prefix ~method_ ~host : Contract.t =
           ~description:
             ("Authenticated requests are allowed for " ^ scope_description)
           (Ir.And [ scope; Ir.Requires_auth ]) ] }
+
+let network_restricted_access_contract ~path_prefix ~method_ ~host
+    ~trusted_cidr : Contract.t =
+  let scope = request_scope ~path_prefix ~method_ ~host in
+  let scope_description = scope_description ~path_prefix ~method_ ~host in
+  let trusted = Cidr.to_string trusted_cidr in
+  { Contract.name = "network-restricted-access";
+    description =
+      Printf.sprintf
+        "Requests outside %s are denied and authenticated requests inside it are allowed for %s"
+        trusted scope_description;
+    clauses =
+      [ Contract.must_deny ~name:"untrusted-network-access-denied"
+          ~description:
+            (Printf.sprintf "Requests outside %s are denied for %s" trusted
+               scope_description)
+          (Ir.And [ scope; Ir.Not (Ir.Source_in trusted_cidr) ]);
+        Contract.must_allow ~name:"trusted-authenticated-access-allowed"
+          ~description:
+            (Printf.sprintf
+               "Authenticated requests inside %s are allowed for %s" trusted
+               scope_description)
+          (Ir.And [ scope; Ir.Source_in trusted_cidr; Ir.Requires_auth ]) ] }
 
 (* The core property template plus the connector lift that explains its
    counterexample in Kong's own vocabulary. The lift's [culprit] mirrors the
@@ -90,6 +123,7 @@ let resolve (cfg : Ast.config) :
                plugin nor an ip-restriction confining it."
             cfg m )
   | Authenticated_access _ -> None
+  | Network_restricted_access _ -> None
   | No_shadowed_routes -> None
 
 let report_clause (clause : Contract.clause) : Report.clause =
@@ -118,7 +152,8 @@ let report_assurance (assessment : Assurance.assessment) : Report.assurance =
   in
   { profile = Assurance.profile.id; status; findings }
 
-let run_contract cfg policy contract : Report.outcome * Report.clause option =
+let run_contract ?(show_source = false) ~lift_denied cfg policy contract :
+    Report.outcome * Report.clause option =
   match Contract_verify.run policy contract with
   | Contract_verify.Proved -> (Report.Proved, None)
   | Contract_verify.Vacuous clause ->
@@ -133,9 +168,9 @@ let run_contract cfg policy contract : Report.outcome * Report.clause option =
   | Contract_verify.Violated (clause, model) ->
     let counterexample =
       match clause with
-      | Contract.Must_deny _ -> Lift.counterexample cfg model
+      | Contract.Must_deny _ -> lift_denied model
       | Contract.Must_allow _ ->
-        Lift.functionality_counterexample cfg policy model
+        Lift.functionality_counterexample ~show_source cfg policy model
     in
     (Report.Violated counterexample, Some (report_clause clause))
   | Contract_verify.Unknown reason -> (Report.Unknown reason, None)
@@ -176,11 +211,23 @@ let run ?emit_smt ~(property : property) (config : string) :
   | Error e -> Error e
   | Ok cfg ->
     let assurance = report_assurance (Assurance.assess cfg) in
-    let contract =
+    let contract, show_source, lift_denied =
       match property with
       | Authenticated_access { path_prefix; method_; host } ->
-        Some (authenticated_access_contract ~path_prefix ~method_ ~host)
-      | _ -> None
+        ( Some (authenticated_access_contract ~path_prefix ~method_ ~host),
+          false,
+          Lift.counterexample cfg )
+      | Network_restricted_access
+          { path_prefix; method_; host; trusted_cidr } ->
+        ( Some
+            (network_restricted_access_contract ~path_prefix ~method_ ~host
+               ~trusted_cidr),
+          true,
+          Lift.counterexample ~culprit:(fun _ _ -> true) ~show_source:true
+            ~missing:
+              "the selected route does not enforce the frozen trusted-network boundary."
+            cfg )
+      | _ -> (None, false, Lift.counterexample cfg)
     in
     if Option.is_some contract && Option.is_some emit_smt then
       Error "--emit-smt is not yet supported for multi-query contracts"
@@ -201,7 +248,8 @@ let run ?emit_smt ~(property : property) (config : string) :
       | Ok () -> (
         let policy = Lower.to_policy cfg in
         match contract with
-        | Some contract -> run_contract cfg policy contract
+        | Some contract ->
+          run_contract ~show_source ~lift_denied cfg policy contract
         | None ->
           (match resolve cfg property with
         | None -> (run_shadowing ?emit_smt cfg policy, None)
