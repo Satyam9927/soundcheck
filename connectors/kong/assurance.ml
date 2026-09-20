@@ -42,7 +42,7 @@ let profile =
         feature "traditional-route-priority" "two-layer traditional-router priority without created_at";
         feature "known-auth-plugins" "authentication requirement from Soundcheck's known plugin list";
         feature "known-rate-limit-plugins" "rate-limit coverage from Soundcheck's known plugin list";
-        feature "ipv4-ip-restriction" "IPv4 ip-restriction allow and deny guards";
+        feature "ipv4-ip-restriction" "IPv4 ip-restriction allow and deny guards over Kong's derived client IP";
         feature "default-admin-ports" "Admin API recognition on default ports 8001 and 8444";
         feature "default-deny" "denying fallthrough when no route guard allows a request" ];
     conservative =
