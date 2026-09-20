@@ -53,6 +53,43 @@ let check_route (service : Ast.service) (route : Ast.route) =
            route.name service.name)
     else Ok ()
 
+let check_scoped_plugin (config : Ast.config) (scoped : Ast.scoped_plugin) =
+  if scoped.consumer_scoped || scoped.unsupported_reference then Ok ()
+  else
+    let service =
+      Option.bind scoped.service (fun name ->
+          List.find_opt (fun (service : Ast.service) -> service.name = name)
+            config.services)
+    in
+    let route_owner =
+      Option.bind scoped.route (fun name ->
+          List.find_map
+            (fun (service : Ast.service) ->
+              Option.map (fun route -> (service, route))
+                (List.find_opt
+                   (fun (route : Ast.route) -> route.name = name)
+                   service.routes))
+            config.services)
+    in
+    match (scoped.service, service, scoped.route, route_owner) with
+    | Some name, None, _, _ ->
+      Error
+        (Printf.sprintf
+           "invalid Kong config: root plugin %S references unknown service %S"
+           scoped.plugin.name name)
+    | _, _, Some name, None when not config.has_top_level_routes ->
+      Error
+        (Printf.sprintf
+           "invalid Kong config: root plugin %S references unknown route %S"
+           scoped.plugin.name name)
+    | Some service_name, Some _, Some route_name, Some (owner, _)
+      when owner.name <> service_name ->
+      Error
+        (Printf.sprintf
+           "invalid Kong config: root plugin %S references route %S outside service %S"
+           scoped.plugin.name route_name service_name)
+    | _ -> Ok ()
+
 let check (config : Ast.config) =
   let rec services = function
     | [] -> Ok ()
@@ -74,4 +111,14 @@ let check (config : Ast.config) =
       in
       routes service.routes
   in
-  services config.services
+  match services config.services with
+  | Error _ as error -> error
+  | Ok () ->
+    let rec scoped = function
+      | [] -> Ok ()
+      | plugin :: rest ->
+        (match check_scoped_plugin config plugin with
+         | Ok () -> scoped rest
+         | Error _ as error -> error)
+    in
+    scoped config.scoped_plugins

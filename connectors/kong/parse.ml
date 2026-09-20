@@ -49,13 +49,37 @@ let has_relationship value =
       match member key value with None | Some `Null -> false | Some _ -> true)
     [ "route"; "service"; "consumer"; "consumer_group" ]
 
+let relationship_name key value =
+  match member key value with
+  | None | Some `Null -> (None, false)
+  | Some (`String name) -> (Some name, false)
+  | Some _ -> (None, true)
+
+let relationship_present key value =
+  match member key value with None | Some `Null -> false | Some _ -> true
+
 let root_plugins_of = function
   | Some (`A values) ->
     List.fold_right
       (fun value (global, scoped) ->
         match plugin_of value with
         | None -> (global, scoped)
-        | Some plugin when has_relationship value -> (global, plugin :: scoped)
+        | Some plugin when has_relationship value ->
+          let service, unsupported_service =
+            relationship_name "service" value
+          in
+          let route, unsupported_route = relationship_name "route" value in
+          let scoped_plugin : Ast.scoped_plugin =
+            { plugin;
+              service;
+              route;
+              consumer_scoped =
+                relationship_present "consumer" value
+                || relationship_present "consumer_group" value;
+              unsupported_reference =
+                unsupported_service || unsupported_route }
+          in
+          (global, scoped_plugin :: scoped)
         | Some plugin -> (plugin :: global, scoped))
       values ([], [])
   | _ -> ([], [])
@@ -108,6 +132,8 @@ let config_of (v : Yaml.value) : Ast.config =
        | _ -> []);
     global_plugins;
     scoped_plugins;
+    has_top_level_routes =
+      (match member "routes" v with Some (`A (_ :: _)) -> true | _ -> false);
   }
 
 let parse_string (s : string) : (Ast.config, string) result =

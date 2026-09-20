@@ -30,9 +30,9 @@ type assessment = {
 let feature code description = { code; description }
 
 let profile =
-  { id = "kong-traditional-http-v6";
+  { id = "kong-traditional-http-v7";
     connector = "kong";
-    version = 6;
+    version = 7;
     target = "Kong Gateway traditional/traditional_compatible HTTP routing";
     modeled =
       [ feature "literal-path-prefix" "literal HTTP path-prefix matching";
@@ -49,6 +49,7 @@ let profile =
         feature "ipv4-ip-restriction" "IPv4 ip-restriction allow and deny guards over Kong's derived client IP";
         feature "request-termination" "unconditional request-termination denial with Kong plugin precedence";
         feature "global-plugin-scope" "global plugins with route-over-service-over-global precedence";
+        feature "root-route-service-plugin-scope" "root plugins scoped by string route/service references";
         feature "default-admin-ports" "Admin API recognition on default ports 8001 and 8444";
         feature "default-deny" "denying fallthrough when no route guard allows a request" ];
     conservative =
@@ -62,7 +63,9 @@ let profile =
         feature "conditional-request-termination" "triggered request-termination depends on unmodeled query parameters" ];
     unsupported =
       [ feature "unsupported-path-regex" "non-regular or untranslated regex constructs make the whole result unknown";
-        feature "scoped-root-plugin" "root-level plugins with route, service, or consumer references require flattened scope resolution" ] }
+        feature "consumer-scoped-plugin" "consumer-scoped plugins require a richer principal identity model";
+        feature "non-string-plugin-reference" "non-string root plugin references are not resolved";
+        feature "top-level-route" "top-level routes require service-reference resolution" ] }
 
 let string_of_status = function
   | Within_profile -> "within_profile"
@@ -154,13 +157,33 @@ let route_findings (service : Ast.service) (route : Ast.route) =
 let assess (config : Ast.config) =
   let findings =
     plugin_findings config.global_plugins
-    @ List.map
-        (fun (plugin : Ast.plugin) ->
-          finding "scoped-root-plugin"
-            (Printf.sprintf
-               "root-level plugin %S has an explicit relationship that is not modeled"
-               plugin.name))
+    @ List.concat_map
+        (fun (scoped : Ast.scoped_plugin) ->
+          let plugin_semantics =
+            plugin_findings ?service:scoped.service ?route:scoped.route
+              [ scoped.plugin ]
+          in
+          let unsupported =
+            (if scoped.consumer_scoped then
+               [ finding ?service:scoped.service ?route:scoped.route
+                   "consumer-scoped-plugin"
+                   (Printf.sprintf
+                      "root-level plugin %S has a consumer or consumer-group scope"
+                      scoped.plugin.name) ]
+             else [])
+            @ if scoped.unsupported_reference then
+                [ finding "non-string-plugin-reference"
+                    (Printf.sprintf
+                       "root-level plugin %S has a non-string route or service reference"
+                       scoped.plugin.name) ]
+              else []
+          in
+          plugin_semantics @ unsupported)
         config.scoped_plugins
+    @ (if config.has_top_level_routes then
+         [ finding "top-level-route"
+             "config has top-level routes whose service references are not modeled" ]
+       else [])
     @ List.concat_map
       (fun (service : Ast.service) ->
         plugin_findings ~service:service.name service.plugins
@@ -171,8 +194,9 @@ let assess (config : Ast.config) =
     if
       List.exists
         (fun finding ->
-          finding.code = "unsupported-path-regex"
-          || finding.code = "scoped-root-plugin")
+          List.mem finding.code
+            [ "unsupported-path-regex"; "consumer-scoped-plugin";
+              "non-string-plugin-reference"; "top-level-route" ])
         findings
     then Unsupported
     else if findings = [] then Within_profile
