@@ -13,6 +13,8 @@ type request = {
   context   : context;
   source    : int32;   (* IPv4 source address of the connection *)
   host      : string;  (* request Host, already lowercased by the server *)
+  scheme    : string;  (* normalized request scheme, e.g. http / https *)
+  sni       : string;  (* TLS server name, empty when absent *)
 }
 
 type decision = Allow | Deny
@@ -27,6 +29,8 @@ type condition =
   | Requires_auth
   | Source_in   of Cidr.t
   | Host_matches of Regex.t
+  | Scheme_is of string
+  | Sni_is of string
   | Header_has of string * string
   | Not of condition
   | And of condition list
@@ -87,6 +91,8 @@ let rec matches (c : condition) (r : request) : bool =
   | Requires_auth -> (match r.principal with Authenticated _ -> true | Anonymous -> false)
   | Source_in c -> Cidr.contains c r.source
   | Host_matches re -> Regex.matches_full re r.host
+  | Scheme_is scheme -> r.scheme = scheme
+  | Sni_is sni -> r.sni = sni
   | Header_has (name, value) ->
     List.exists
       (fun (candidate_name, candidate_value) ->

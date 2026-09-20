@@ -56,6 +56,10 @@ let route_of (v : Yaml.value) : Ast.route =
     name = name_of v ~default:"<unnamed-route>";
     paths = string_list (member "paths" v);
     methods = string_list (member "methods" v);
+    protocols =
+      (match member "protocols" v with
+       | None -> [ "http"; "https" ]
+       | some -> string_list some);
     plugins = plugins_of (member "plugins" v);
     hosts = string_list (member "hosts" v);
     snis = string_list (member "snis" v);

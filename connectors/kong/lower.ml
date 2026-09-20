@@ -66,7 +66,7 @@ let path_condition (p : string) : Ir.condition =
 let path_matches (kong_path : string) (concrete : string) : bool =
   Ir.matches (path_condition kong_path)
     { Ir.principal = Ir.Anonymous; action = ""; resource = concrete;
-      context = []; source = 0l; host = "" }
+      context = []; source = 0l; host = ""; scheme = "http"; sni = "" }
 
 (* Kong compiles a host pattern to a regex at load time and matches it against the
    request Host. Transcribed from kong/router/traditional.lua:
@@ -132,9 +132,33 @@ let header_condition (route : Ast.route) : Ir.condition option =
   in
   match exact with [] -> None | conditions -> Some (Ir.And conditions)
 
+let normalized_sni value =
+  let length = String.length value in
+  if length > 1 && value.[length - 1] = '.' then
+    String.sub value 0 (length - 1)
+  else value
+
+let has_wildcard_sni (route : Ast.route) =
+  List.exists (fun sni -> String.contains sni '*') route.snis
+
+type sni_variant = Unscoped | Http_ignores_sni | Https_sni
+
+let sni_condition (variant : sni_variant) (route : Ast.route) : Ir.condition option =
+  match variant with
+  | Unscoped -> None
+  | Http_ignores_sni -> Some (Ir.Scheme_is "http")
+  | Https_sni when has_wildcard_sni route -> Some (Ir.Scheme_is "https")
+  | Https_sni ->
+    Some
+      (Ir.And
+         [ Ir.Scheme_is "https";
+           Ir.Or
+             (List.map (fun sni -> Ir.Sni_is (normalized_sni sni)) route.snis) ])
+
 (* Routing criteria only: which requests this route is a candidate to serve.
    Policy (auth) is deliberately NOT folded in — see {!Ir.rule}. *)
-let match_condition (path : string option) (route : Ast.route) : Ir.condition =
+let match_condition (variant : sni_variant) (path : string option)
+    (route : Ast.route) : Ir.condition =
   let path_c = match path with None -> Ir.True | Some p -> path_condition p in
   let method_c =
     match route.methods with
@@ -143,9 +167,10 @@ let match_condition (path : string option) (route : Ast.route) : Ir.condition =
   in
   let host_c = host_condition route.hosts in
   let header_c = header_condition route in
+  let sni_c = sni_condition variant route in
   Ir.And
     (List.filter_map Fun.id
-       [ Some path_c; Some method_c; host_c; header_c ])
+       [ Some path_c; Some method_c; host_c; header_c; sni_c ])
 
 (* Kong's Admin API listens on 8001 (http) and 8444 (https) by default. A service
    whose upstream is that port is proxying the Admin API through the public proxy
@@ -210,8 +235,14 @@ let ip_restriction_condition (service : Ast.service) (route : Ast.route) :
 
 let guard_condition (service : Ast.service) (route : Ast.route) : Ir.condition =
   let auth = if requires_auth service route then Ir.Requires_auth else Ir.True in
+  let protocol =
+    if List.mem "https" route.protocols && not (List.mem "http" route.protocols)
+    then Ir.Scheme_is "https"
+    else Ir.True
+  in
   match
-    List.filter (fun c -> c <> Ir.True) [ auth; ip_restriction_condition service route ]
+    List.filter (fun c -> c <> Ir.True)
+      [ protocol; auth; ip_restriction_condition service route ]
   with
   | [] -> Ir.True
   | [ c ] -> c
@@ -272,11 +303,12 @@ let is_wildcard_host h = String.contains h '*'
 (* A wildcard host "includes a port" when a colon follows the host part. *)
 let wildcard_host_has_port h = is_wildcard_host h && String.contains h ':'
 
-(* Criteria Kong matches on that we do NOT model exactly: SNIs, regex header
-   values, stream-only sources/destinations, and uppercase hosts. A route carrying
-   one is marked incomparable — see {!Ir.priority}. *)
-let unmodelled_match (route : Ast.route) : bool =
-  route.snis <> [] || route.has_sources_or_destinations
+(* Criteria Kong matches on that we do NOT model exactly: wildcard SNIs, regex
+   header values, stream-only sources/destinations, and uppercase hosts. A route
+   carrying one is marked incomparable — see {!Ir.priority}. *)
+let unmodelled_match (variant : sni_variant) (route : Ast.route) : bool =
+  route.has_sources_or_destinations
+  || (variant = Https_sni && has_wildcard_sni route)
   || List.exists (fun (_, values) -> is_header_regex values)
        (routable_headers route)
   (* An uppercase host can never match: the server lowercases the Host before
@@ -285,14 +317,14 @@ let unmodelled_match (route : Ast.route) : bool =
      such a route is left unranked. *)
   || List.exists (fun h -> String.lowercase_ascii h <> h) route.hosts
 
-let priority_of ~(regex_priority : int) (route : Ast.route) (path : string option)
-    : Ir.priority =
+let priority_of ~(regex_priority : int) ~(include_sni : bool)
+    (route : Ast.route) (path : string option) : Ir.priority =
   let headers = routable_headers route in
   let has_uri = path <> None in
   let has_method = route.methods <> [] in
   let has_host = route.hosts <> [] in
   let has_headers = headers <> [] in
-  let has_sni = route.snis <> [] in
+  let has_sni = include_sni in
   let bit b present = if present then b else 0 in
   let category_bit =
     bit rule_uri has_uri lor bit rule_method has_method lor bit rule_host has_host
@@ -315,7 +347,7 @@ let priority_of ~(regex_priority : int) (route : Ast.route) (path : string optio
      the comparison fall through to the next level, exactly as Kong's guard does. *)
   let rp = if is_regex then regex_priority else 0 in
   let uri_length = match path with Some p -> String.length p | None -> 0 in
-  { Ir.comparable = not (unmodelled_match route);
+  { Ir.comparable = true;
     key =
       [ match_weight; category_bit; submatch_weight; List.length headers; rp;
         uri_length ] }
@@ -327,22 +359,41 @@ let priority_of ~(regex_priority : int) (route : Ast.route) (path : string optio
    Both rules keep the route's name as [id], so counterexample lifting is
    unaffected. *)
 let rules_of_route (service : Ast.service) (route : Ast.route) : Ir.rule list =
+  if
+    not
+      (List.exists
+         (fun protocol -> protocol = "http" || protocol = "https")
+         route.protocols)
+  then []
+  else
   let paths =
     match route.paths with [] -> [ None ] | ps -> List.map (fun p -> Some p) ps
   in
   let guard = guard_condition service route in
   let rate_limited = rate_limited service route in
   let targets_admin = targets_admin_api service in
-  List.map
-    (fun path : Ir.rule ->
-      { id = route.name;
-        match_ = match_condition path route;
-        match_complete = not (unmodelled_match route);
-        guard;
-        priority = priority_of ~regex_priority:route.regex_priority route path;
-        decision = Ir.Allow;
-        rate_limited;
-        targets_admin })
+  let variants =
+    if route.snis = [] then [ Unscoped ]
+    else [ Http_ignores_sni; Https_sni ]
+  in
+  List.concat_map
+    (fun path ->
+      List.map
+        (fun variant : Ir.rule ->
+          let match_complete = not (unmodelled_match variant route) in
+          let priority =
+            priority_of ~regex_priority:route.regex_priority
+              ~include_sni:(variant = Https_sni) route path
+          in
+          { id = route.name;
+            match_ = match_condition variant path route;
+            match_complete;
+            guard;
+            priority = { priority with comparable = match_complete };
+            decision = Ir.Allow;
+            rate_limited;
+            targets_admin })
+        variants)
     paths
 
 let to_policy (cfg : Ast.config) : Ir.policy =
@@ -352,6 +403,9 @@ let to_policy (cfg : Ast.config) : Ir.policy =
         List.concat_map (rules_of_route service) service.routes)
       cfg.services
   in
-  { request_domain = Path_normalization.request_domain;
+  { request_domain =
+      Ir.And
+        [ Path_normalization.request_domain;
+          Ir.Or [ Ir.Scheme_is "http"; Ir.Scheme_is "https" ] ];
     rules;
     default = Ir.Deny }

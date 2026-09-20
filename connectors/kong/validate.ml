@@ -13,6 +13,46 @@ let check_path (service : Ast.service) (route : Ast.route) path =
          route.Ast.name service.Ast.name path
          (Path_normalization.normalize_literal path))
 
+let protocol_family = function
+  | "http" | "https" -> Some "http"
+  | "tcp" | "tls" | "udp" -> Some "stream"
+  | "tls_passthrough" -> Some "tls_passthrough"
+  | "grpc" | "grpcs" -> Some "grpc"
+  | _ -> None
+
+let check_route (service : Ast.service) (route : Ast.route) =
+  if route.protocols = [] then
+    Error
+      (Printf.sprintf
+         "invalid Kong config: route %S (service %S) protocols must not be empty"
+         route.name service.name)
+  else
+    let families =
+      List.filter_map protocol_family route.protocols |> List.sort_uniq compare
+    in
+    if
+      List.exists (fun protocol -> Option.is_none (protocol_family protocol))
+        route.protocols
+      || List.length families <> 1
+    then
+      Error
+        (Printf.sprintf
+           "invalid Kong config: route %S (service %S) has unknown or incompatible protocols"
+           route.name service.name)
+    else if
+      route.snis <> []
+      && not
+           (List.for_all
+              (fun protocol ->
+                List.mem protocol [ "https"; "grpcs"; "tls"; "tls_passthrough" ])
+              route.protocols)
+    then
+      Error
+        (Printf.sprintf
+           "invalid Kong config: route %S (service %S) snis require secure protocols"
+           route.name service.name)
+    else Ok ()
+
 let check (config : Ast.config) =
   let rec services = function
     | [] -> Ok ()
@@ -20,6 +60,9 @@ let check (config : Ast.config) =
       let rec routes = function
         | [] -> services rest
         | (route : Ast.route) :: remaining ->
+          (match check_route service route with
+           | Error _ as error -> error
+           | Ok () ->
           let rec paths = function
             | [] -> routes remaining
             | path :: tail ->
@@ -27,7 +70,7 @@ let check (config : Ast.config) =
                | Ok () -> paths tail
                | Error _ as error -> error)
           in
-          paths route.paths
+          paths route.paths)
       in
       routes service.routes
   in

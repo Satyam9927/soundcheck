@@ -6,6 +6,8 @@ type model = {
   is_anon : bool;
   src_ip  : int32;   (** IPv4 source address of the violating request *)
   host    : string;  (** request Host of the violating request *)
+  scheme  : string;  (** normalized request scheme *)
+  sni     : string;  (** TLS server name, or empty when absent *)
   headers : (string * string) list;
       (** Lowercase header-name/value memberships required by the model. *)
 }

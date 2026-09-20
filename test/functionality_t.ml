@@ -79,7 +79,9 @@ let () =
          resource = ce.path;
          context = [];
          source = ce.source_ip;
-         host = ce.host }
+         host = ce.host;
+         scheme = ce.scheme;
+         sni = ce.sni }
      in
      let policy : Ir.policy =
        { request_domain = True; rules = []; default = Deny }

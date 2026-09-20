@@ -30,9 +30,9 @@ type assessment = {
 let feature code description = { code; description }
 
 let profile =
-  { id = "kong-traditional-http-v3";
+  { id = "kong-traditional-http-v4";
     connector = "kong";
-    version = 3;
+    version = 4;
     target = "Kong Gateway traditional/traditional_compatible HTTP routing";
     modeled =
       [ feature "literal-path-prefix" "literal HTTP path-prefix matching";
@@ -41,6 +41,8 @@ let profile =
         feature "http-method" "HTTP method matching";
         feature "lowercase-host" "lowercase exact and wildcard Host matching";
         feature "exact-header-match" "case-insensitive exact HTTP header matching, including repeated values";
+        feature "http-https-protocol" "HTTP subsystem selection and HTTPS-only rejection";
+        feature "exact-sni" "exact SNI matching for HTTPS and Kong's HTTP bypass";
         feature "traditional-route-priority" "two-layer traditional-router priority without created_at";
         feature "known-auth-plugins" "authentication requirement from Soundcheck's known plugin list";
         feature "known-rate-limit-plugins" "rate-limit coverage from Soundcheck's known plugin list";
@@ -50,7 +52,7 @@ let profile =
     conservative =
       [ feature "route-created-at-tie" "created_at is absent from decK and unresolved route order remains tied";
         feature "route-header-regex" "regex header values are over-approximated and the route is left incomparable";
-        feature "route-sni" "SNI criteria are over-approximated and the route is left incomparable";
+        feature "wildcard-sni" "wildcard SNI depends on router flavor and is over-approximated";
         feature "route-stream-match" "source/destination criteria are over-approximated and the route is left incomparable";
         feature "uppercase-host" "uppercase route hosts are left incomparable because request hosts are lowercased";
         feature "unrecognized-plugin" "unrecognized plugins provide no modeled auth or rate-limit behavior";
@@ -107,8 +109,9 @@ let route_findings (service : Ast.service) (route : Ast.route) =
        [ location "route-header-regex"
            "route has a regex header value that is conservatively approximated" ]
      else [])
-    @ (if route.snis <> [] then
-         [ location "route-sni" "route has SNI matching criteria" ]
+    @ (if Lower.has_wildcard_sni route then
+         [ location "wildcard-sni"
+             "route has wildcard SNI behavior that depends on router flavor" ]
        else [])
     @ (if route.has_sources_or_destinations then
          [ location "route-stream-match" "route has source or destination matching criteria" ]

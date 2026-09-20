@@ -27,7 +27,9 @@ let request context : Ir.request =
     resource = "/admin";
     context;
     source = 0l;
-    host = "" }
+    host = "";
+    scheme = "http";
+    sni = "" }
 
 let () =
   let rule = only_rule exact_config in
