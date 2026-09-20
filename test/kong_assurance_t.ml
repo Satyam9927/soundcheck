@@ -14,6 +14,15 @@ let expect_status expected assessment =
          (Assurance.string_of_status expected)
          (Assurance.string_of_status assessment.Assurance.status))
 
+let contains haystack needle =
+  let haystack_length = String.length haystack in
+  let needle_length = String.length needle in
+  let rec search offset =
+    offset + needle_length <= haystack_length
+    && (String.sub haystack offset needle_length = needle || search (offset + 1))
+  in
+  needle_length = 0 || search 0
+
 let () =
   if Assurance.profile.id <> "kong-traditional-http-v1"
      || Assurance.profile.version <> 1
@@ -50,4 +59,26 @@ let () =
 
   let json = Assurance.profile_json () in
   if not (String.starts_with ~prefix:"{\"id\":\"kong-traditional-http-v1\"" json)
-  then failwith "profile JSON omitted stable identity"
+  then failwith "profile JSON omitted stable identity";
+
+  let report =
+    match
+      Verify.run ~property:(Verify.No_anonymous_access "/admin")
+        "services: [{name: api, routes: [{name: headers, paths: [/admin], headers: {x-role: [admin]}}]}]"
+    with
+    | Ok report -> report
+    | Error error -> failwith error
+  in
+  (match report.Soundcheck_core.Report.assurance with
+   | Some assurance
+     when assurance.profile = "kong-traditional-http-v1"
+          && assurance.status = Soundcheck_core.Report.Conservative -> ()
+   | _ -> failwith "verification report omitted assurance assessment");
+  let report_json = Soundcheck_core.Report.to_json report in
+  if not (contains report_json "\"schema_version\":7")
+     || not (contains report_json "\"code\":\"route-headers\"")
+  then failwith "report JSON omitted assurance identity or finding";
+  let human = Soundcheck_core.Report.to_human report in
+  if not (contains human "Assurance: kong-traditional-http-v1 (conservative)")
+     || not (contains human "route-headers")
+  then failwith "human report omitted assurance assessment"

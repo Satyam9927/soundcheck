@@ -149,8 +149,13 @@ identically by CI, the MCP tool, and eventually the repair loop.
 ```json
 {
   "result": "violated",
-  "schema_version": 6,
+  "schema_version": 7,
   "property": "no-anonymous-access",
+  "assurance": {
+    "profile": "kong-traditional-http-v1",
+    "status": "within_profile",
+    "findings": []
+  },
   "frozen_spec": null,
   "clause": null,
   "counterexample": {
@@ -168,7 +173,10 @@ identically by CI, the MCP tool, and eventually the repair loop.
 ```
 
 Every key is emitted unconditionally, `null` when absent, so a consumer never has to
-probe for existence. Frozen runs populate `frozen_spec` with the artifact schema,
+probe for existence. `assurance` identifies the versioned connector semantics and
+whether this config stayed within them, triggered conservative over-approximation, or
+contained an unsupported construct. Findings use stable codes plus service/route
+locations. Frozen runs populate `frozen_spec` with the artifact schema,
 kind, and normalized canonical content, binding the verdict to the reviewed input.
 Manual property runs emit `null`. `shadowed_route` is populated only by
 `no-shadowed-routes`, which

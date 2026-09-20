@@ -100,6 +100,24 @@ let report_clause (clause : Contract.clause) : Report.clause =
        | Contract.Must_deny _ -> Report.Must_deny
        | Contract.Must_allow _ -> Report.Must_allow) }
 
+let report_assurance (assessment : Assurance.assessment) : Report.assurance =
+  let status =
+    match assessment.status with
+    | Assurance.Within_profile -> Report.Within_profile
+    | Assurance.Conservative -> Report.Conservative
+    | Assurance.Unsupported -> Report.Unsupported
+  in
+  let findings =
+    List.map
+      (fun (finding : Assurance.finding) : Report.assurance_finding ->
+        { code = finding.code;
+          service = finding.service;
+          route = finding.route;
+          detail = finding.detail })
+      assessment.findings
+  in
+  { profile = Assurance.profile.id; status; findings }
+
 let run_contract cfg policy contract : Report.outcome * Report.clause option =
   match Contract_verify.run policy contract with
   | Contract_verify.Proved -> (Report.Proved, None)
@@ -157,6 +175,7 @@ let run ?emit_smt ~(property : property) (config : string) :
   match Parse.parse_string config with
   | Error e -> Error e
   | Ok cfg ->
+    let assurance = report_assurance (Assurance.assess cfg) in
     let contract =
       match property with
       | Authenticated_access { path_prefix; method_; host } ->
@@ -204,5 +223,6 @@ let run ?emit_smt ~(property : property) (config : string) :
       Ok { Report.result = outcome;
            property_name = name;
            property_description = description;
+           assurance = Some assurance;
            clause;
            frozen_spec = None }
