@@ -34,6 +34,10 @@ type request = {
   host      : string;
       (** Request Host. Already lowercase: the server lowercases it before routing
           (nginx's [$host]), so a pattern is compared against a lowercase subject. *)
+  scheme    : string;
+      (** Normalized request scheme, currently ["http"] or ["https"] for Kong. *)
+  sni       : string;
+      (** TLS Server Name Indication, or the empty string when absent. *)
 }
 
 (** The effect of a policy decision. ([effect] itself is a reserved keyword in
@@ -61,6 +65,8 @@ type condition =
       (** [host] belongs to the language, in full. Kong compiles both plain and
           wildcard host patterns down to a regex, so one condition covers both and
           the connector owns the translation. *)
+  | Scheme_is of string
+  | Sni_is of string
   | Header_has of string * string
       (** The request contains this lowercase header-name/value pair. Repeated
           request headers are represented by repeated [context] bindings. *)

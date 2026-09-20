@@ -180,6 +180,11 @@ request values and Kong's header-count priority rule. A sole header value beginn
 with `~*` is Kong's regex form; it remains a conservative profile finding rather
 than being treated as an exact string.
 
+HTTP and HTTPS routing are modeled separately where Kong's behavior differs.
+HTTPS-only routes reject matching HTTP requests, while exact SNI criteria are
+enforced for HTTPS but ignored for HTTP route selection and priority. Wildcard SNI
+remains conservative because its availability depends on Kong's router flavor.
+
 ## The JSON contract
 
 `--format json` emits a stable schema. It is the universal integration point, consumed
@@ -188,10 +193,10 @@ identically by CI, the MCP tool, and eventually the repair loop.
 ```json
 {
   "result": "violated",
-  "schema_version": 8,
+  "schema_version": 9,
   "property": "no-anonymous-access",
   "assurance": {
-    "profile": "kong-traditional-http-v3",
+    "profile": "kong-traditional-http-v4",
     "status": "within_profile",
     "findings": []
   },
@@ -202,6 +207,8 @@ identically by CI, the MCP tool, and eventually the repair loop.
     "action": "GET",
     "path": "/admin",
     "host": "",
+    "scheme": "https",
+    "sni": "api.example",
     "headers": [],
     "source_ip": "0.0.0.0",
     "route": "admin-route",

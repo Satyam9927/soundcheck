@@ -20,9 +20,10 @@ type route = {
   name           : string;
   paths          : string list;
   methods        : string list;   (* empty = any method *)
+  protocols      : string list;   (* schema default: [http; https] *)
   plugins        : plugin list;   (* route-level plugins *)
   hosts          : string list;   (* lowercase exact/wildcard hosts are modeled *)
-  snis           : string list;   (* NOT modelled *)
+  snis           : string list;
   headers        : (string * string list) list;
       (* Header names and values as authored. Exact values are modeled
          case-insensitively; a sole value beginning [~*] is Kong regex syntax. *)

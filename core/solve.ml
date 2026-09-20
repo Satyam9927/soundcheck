@@ -4,6 +4,8 @@ type model = {
   is_anon : bool;
   src_ip  : int32;
   host    : string;
+  scheme  : string;
+  sni     : string;
   headers : (string * string) list;
 }
 
@@ -197,8 +199,10 @@ let check ?(z3 = "z3") ?emit_smt (smtlib : string) : result =
     let is_anon = Option.value ~default:false (extract_bool out "is_anon") in
     let src_ip = Option.value ~default:0l (extract_bv out "src_ip") in
     let host = Option.value ~default:"" (extract_string out "host") in
+    let scheme = Option.value ~default:"" (extract_string out "scheme") in
+    let sni = Option.value ~default:"" (extract_string out "sni") in
     let headers = extract_headers out in
-    Violated { path; method_; is_anon; src_ip; host; headers }
+    Violated { path; method_; is_anon; src_ip; host; scheme; sni; headers }
   else Unknown (String.trim out)
 
 let string_of_result = function

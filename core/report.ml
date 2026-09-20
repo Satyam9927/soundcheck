@@ -10,6 +10,8 @@ type counterexample = {
   shadowed_route   : string option;
   shadowed_service : string option;
   host             : string;
+  scheme           : string;
+  sni              : string;
   source_ip        : int32;
   headers          : (string * string) list;
   note             : string;
@@ -130,7 +132,7 @@ let jopt = function
 (* Bumped when the shape changes in a way a consumer must notice. Adding an
    always-present field counts; every key below is emitted unconditionally
    (null when absent) so a consumer never has to probe for existence. *)
-let schema_version = 8
+let schema_version = 9
 
 let counterexample_json ce =
   let headers =
@@ -141,9 +143,10 @@ let counterexample_json ce =
     |> String.concat ","
   in
   Printf.sprintf
-    "{\"principal\":%s,\"action\":%s,\"path\":%s,\"host\":%s,\"headers\":[%s],\"source_ip\":%s,\"route\":%s,\"service\":%s,\"shadowed_route\":%s,\"shadowed_service\":%s}"
+    "{\"principal\":%s,\"action\":%s,\"path\":%s,\"host\":%s,\"scheme\":%s,\"sni\":%s,\"headers\":[%s],\"source_ip\":%s,\"route\":%s,\"service\":%s,\"shadowed_route\":%s,\"shadowed_service\":%s}"
     (jstring ce.principal) (jstring ce.action) (jstring ce.path) (jstring ce.host)
-    headers (jstring (Cidr.string_of_ip ce.source_ip))
+    (jstring ce.scheme) (jstring ce.sni) headers
+    (jstring (Cidr.string_of_ip ce.source_ip))
     (jopt ce.route) (jopt ce.service)
     (jopt ce.shadowed_route) (jopt ce.shadowed_service)
 

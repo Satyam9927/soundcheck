@@ -114,6 +114,7 @@ let mask (key : string) (json : string) : string =
 
 let mask_witness json =
   json |> mask "path" |> mask "action" |> mask "source_ip" |> mask "host"
+  |> mask "scheme" |> mask "sni"
 
 let request_of (ce : Report.counterexample) : Ir.request =
   { principal =
@@ -123,7 +124,9 @@ let request_of (ce : Report.counterexample) : Ir.request =
     resource = ce.path;
     context = ce.headers;
     source = ce.source_ip;
-    host = ce.host }
+    host = ce.host;
+    scheme = ce.scheme;
+    sni = ce.sni }
 
 (* Is the reported counterexample a genuine one? Checked with {!Ir.evaluate}, the
    concrete reference semantics, which is independent of the SMT encoding — so

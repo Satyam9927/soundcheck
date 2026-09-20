@@ -59,7 +59,9 @@ let () =
       resource = "/raw/../path";
       context = [];
       source = 0l;
-      host = "" }
+      host = "";
+      scheme = "http";
+      sni = "" }
   in
   let allow_by_default : Ir.policy =
     { request_domain = Path_normalization.request_domain;

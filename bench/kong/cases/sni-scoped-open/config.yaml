@@ -1,0 +1,10 @@
+# SNI is ignored for HTTP routing but required for HTTPS. This open HTTPS-only
+# route must yield a witness with the configured exact SNI.
+_format_version: "3.0"
+services:
+  - name: secure-api
+    routes:
+      - name: secure-sni
+        protocols: [https]
+        paths: [/admin]
+        snis: [api.example]

@@ -30,6 +30,8 @@ let rec cond (c : Ir.condition) : string =
   | Ir.Requires_auth -> "(not is_anon)"
   | Ir.Source_in c -> Cidr.to_smt ~var:"src_ip" c
   | Ir.Host_matches re -> Printf.sprintf "(str.in_re host %s)" (Regex.to_smt re)
+  | Ir.Scheme_is scheme -> Printf.sprintf "(= scheme %s)" (smt_str scheme)
+  | Ir.Sni_is sni -> Printf.sprintf "(= sni %s)" (smt_str sni)
   | Ir.Header_has (name, value) ->
     header_symbol name value
   | Ir.Not c -> Printf.sprintf "(not %s)" (cond c)
@@ -119,6 +121,8 @@ let preamble b title headers =
      arithmetic. Declared for every query; unused by properties that ignore it. *)
   Buffer.add_string b "(declare-const src_ip (_ BitVec 32))\n";
   Buffer.add_string b "(declare-const host String)\n";
+  Buffer.add_string b "(declare-const scheme String)\n";
+  Buffer.add_string b "(declare-const sni String)\n";
   List.iter
     (fun (name, value) ->
       Buffer.add_string b
@@ -133,7 +137,7 @@ let epilogue b headers =
     |> String.concat " "
   in
   Buffer.add_string b
-    (Printf.sprintf "(get-value (path method is_anon src_ip host%s%s))\n"
+    (Printf.sprintf "(get-value (path method is_anon src_ip host scheme sni%s%s))\n"
        (if header_symbols = "" then "" else " ") header_symbols);
   Buffer.contents b
 

@@ -9,6 +9,8 @@
     - [path]    : the resource, as an SMT [String]
     - [method]  : the action, as an SMT [String]
     - [is_anon] : whether the principal is anonymous, as a [Bool]
+    - [scheme]  : the normalized request protocol
+    - [sni]     : TLS Server Name Indication, or the empty string
     - one [Bool] for every exact header-name/value membership used by a policy *)
 
 val cond : Ir.condition -> string

@@ -40,9 +40,17 @@ let offending_route ~culprit (cfg : Ast.config) (model : Solve.model)
                 route.paths = []
                 || List.exists (fun p -> Lower.path_matches p model.path) route.paths
               in
+              let sni_matches =
+                route.snis = [] || model.scheme = "http"
+                || Lower.has_wildcard_sni route
+                || List.exists
+                     (fun sni -> Lower.normalized_sni sni = model.sni)
+                     route.snis
+              in
               if
                 path_matches
                 && exact_headers_match route model.headers
+                && sni_matches
                 && culprit service route
               then Some (service, route)
               else None)
@@ -65,6 +73,12 @@ let headers_note headers =
     |> List.map (fun (name, value) -> Printf.sprintf "%s: %s" name value)
     |> String.concat ", " |> Printf.sprintf " with header(s) %s"
 
+let transport_note (model : Solve.model) =
+  match model.scheme, model.sni with
+  | "", "" -> ""
+  | scheme, "" -> Printf.sprintf " over %s" scheme
+  | scheme, sni -> Printf.sprintf " over %s with SNI %s" scheme sni
+
 (* Structured lift: the abstract SMT model rendered into a core
    [Report.counterexample], carrying Kong's route/service vocabulary so the JSON
    contract (and every adapter over it) is actionable in the user's own terms.
@@ -85,6 +99,7 @@ let counterexample ?(culprit = no_auth_culprit) ?(missing = no_auth_missing)
   in
   let meth = if m.method_ = "" then "<any-method>" else m.method_ in
   let headers = headers_note m.headers in
+  let transport = transport_note m in
   match offending_route ~culprit cfg m with
   | Some (service, route) ->
     { Report.principal;
@@ -95,12 +110,15 @@ let counterexample ?(culprit = no_auth_culprit) ?(missing = no_auth_missing)
       shadowed_route = None;
       shadowed_service = None;
       host = m.host;
+      scheme = m.scheme;
+      sni = m.sni;
       source_ip = m.src_ip;
       headers = m.headers;
       note =
         Printf.sprintf
-          "%s%s request %s %s%s is ALLOWED via route %S (service %S) — %s"
-          origin principal meth m.path headers route.name service.name missing;
+          "%s%s request %s %s%s%s is ALLOWED via route %S (service %S) — %s"
+          origin principal meth m.path transport headers route.name service.name
+          missing;
     }
   | None ->
     { Report.principal;
@@ -111,13 +129,15 @@ let counterexample ?(culprit = no_auth_culprit) ?(missing = no_auth_missing)
       shadowed_route = None;
       shadowed_service = None;
       host = m.host;
+      scheme = m.scheme;
+      sni = m.sni;
       source_ip = m.src_ip;
       headers = m.headers;
       note =
         Printf.sprintf
-          "%s request %s %s%s is ALLOWED (no matching Kong route identified for \
+          "%s request %s %s%s%s is ALLOWED (no matching Kong route identified for \
            lifting)."
-          principal meth m.path headers;
+          principal meth m.path transport headers;
     }
 
 (* Human one-liner, kept as the [note] of the structured lift (no duplication). *)
@@ -145,7 +165,9 @@ let functionality_counterexample ?(show_source = false) (cfg : Ast.config)
       resource = m.path;
       context = m.headers;
       source = m.src_ip;
-      host = m.host }
+      host = m.host;
+      scheme = m.scheme;
+      sni = m.sni }
   in
   let rejecting =
     List.find_opt
@@ -163,6 +185,7 @@ let functionality_counterexample ?(show_source = false) (cfg : Ast.config)
   in
   let meth = if m.method_ = "" then "<any-method>" else m.method_ in
   let headers = headers_note m.headers in
+  let transport = transport_note m in
   let reason =
     match route with
     | Some name ->
@@ -177,11 +200,13 @@ let functionality_counterexample ?(show_source = false) (cfg : Ast.config)
     shadowed_route = None;
     shadowed_service = None;
     host = m.host;
+    scheme = m.scheme;
+    sni = m.sni;
     source_ip = m.src_ip;
     headers = m.headers;
     note =
-      Printf.sprintf "%s request%s %s %s%s is NOT DEFINITELY ALLOWED — %s."
-        principal origin meth m.path headers reason }
+      Printf.sprintf "%s request%s %s %s%s%s is NOT DEFINITELY ALLOWED — %s."
+        principal origin meth m.path transport headers reason }
 
 (* Shadowing names TWO routes: the one that actually serves the request and the
    one written to handle it. Saying only "this request got through" would lose
@@ -210,6 +235,8 @@ let shadowing_counterexample (cfg : Ast.config) (pair : Shadowing.pair)
     shadowed_route = Some written;
     shadowed_service = service_of_route cfg written;
     host = m.host;
+    scheme = m.scheme;
+    sni = m.sni;
     source_ip = m.src_ip;
     headers = m.headers;
     note =
