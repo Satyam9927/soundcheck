@@ -22,6 +22,9 @@ let usage () =
     \  --format       human (default) | json\n\
     \  --emit-smt     write a single-property SMT-LIB2 query to PATH (not contracts)\n\
      \n\
+     usage: soundcheck profile kong [--format human|json]\n\
+    \  Print the versioned Kong assurance profile and exit.\n\
+     \n\
      usage: soundcheck mcp [--contract CONTRACT.yaml]\n\
     \  With --contract, the MCP verify tool accepts config only and keeps the\n\
     \  human-confirmed specification immutable for the server lifetime.";
@@ -189,8 +192,34 @@ let run_mcp rest =
        exit 2
      | Ok contract -> Soundcheck_mcp.Server.run ~contract ())
 
+let run_profile connector rest =
+  let format =
+    match rest with
+    | [] -> Human
+    | [ "--format"; "human" ] -> Human
+    | [ "--format"; "json" ] -> Json
+    | [ "--format"; other ] ->
+      Printf.eprintf "unknown --format %S (expected human|json)\n" other;
+      exit 2
+    | [ "--format" ] ->
+      prerr_endline "--format requires human or json";
+      exit 2
+    | _ -> usage ()
+  in
+  if connector <> "kong" then begin
+    Printf.eprintf "unknown connector %S (expected kong)\n" connector;
+    exit 2
+  end;
+  let rendered =
+    match format with
+    | Human -> Assurance.profile_human ()
+    | Json -> Assurance.profile_json ()
+  in
+  print_endline rendered
+
 let () =
   match Array.to_list Sys.argv with
   | _ :: "verify" :: file :: rest -> run_verify file rest
+  | _ :: "profile" :: connector :: rest -> run_profile connector rest
   | _ :: "mcp" :: rest -> run_mcp rest
   | _ -> usage ()

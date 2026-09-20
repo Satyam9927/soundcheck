@@ -37,3 +37,6 @@ val string_of_status : status -> string
 
 val profile_json : unit -> string
 (** Stable machine-readable description of [profile]. *)
+
+val profile_human : unit -> string
+(** Human-readable description of [profile]. *)

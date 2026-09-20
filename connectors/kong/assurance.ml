@@ -169,7 +169,29 @@ let features_json features =
 
 let profile_json () =
   Printf.sprintf
-    "{\"id\":%s,\"connector\":%s,\"version\":%d,\"target\":%s,\"modeled\":%s,\"conservative\":%s,\"unsupported\":%s}"
+    "{\"schema_version\":1,\"id\":%s,\"connector\":%s,\"version\":%d,\"target\":%s,\"modeled\":%s,\"conservative\":%s,\"unsupported\":%s}"
     (json_string profile.id) (json_string profile.connector) profile.version
     (json_string profile.target) (features_json profile.modeled)
     (features_json profile.conservative) (features_json profile.unsupported)
+
+let human_features title features =
+  let rows =
+    features
+    |> List.map (fun (feature : feature) ->
+           Printf.sprintf "  - %s: %s" feature.code feature.description)
+    |> String.concat "\n"
+  in
+  Printf.sprintf "%s:\n%s" title rows
+
+let profile_human () =
+  String.concat "\n"
+    [ Printf.sprintf "KONG ASSURANCE PROFILE  %s" profile.id;
+      Printf.sprintf "Connector: %s" profile.connector;
+      Printf.sprintf "Profile version: %d" profile.version;
+      Printf.sprintf "Target: %s" profile.target;
+      "";
+      human_features "Modeled" profile.modeled;
+      "";
+      human_features "Conservative" profile.conservative;
+      "";
+      human_features "Unsupported" profile.unsupported ]

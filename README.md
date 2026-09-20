@@ -106,6 +106,9 @@ dune exec soundcheck -- verify kong.yaml \
 # keep the proof obligation for audit, then re-check it yourself
 dune exec soundcheck -- verify kong.yaml --emit-smt query.smt2
 z3 -smt2 query.smt2
+
+# inspect the exact Kong semantics Soundcheck models
+dune exec soundcheck -- profile kong --format json
 ```
 
 ```
@@ -122,6 +125,8 @@ usage: soundcheck verify <config.yaml> [--contract CONTRACT.yaml]
   --host         exact host for authenticated-access (default all)
   --format       human (default) | json
   --emit-smt     write a single-property SMT-LIB2 query to PATH (not contracts)
+
+usage: soundcheck profile kong [--format human|json]
 
 usage: soundcheck mcp [--contract CONTRACT.yaml]
 ```
@@ -140,6 +145,12 @@ scope:
 
 Exit codes are designed to gate a pipeline: `0` proved, `1` parse error, `2` usage,
 `3` violated, `4` unknown, `5` vacuous, `6` inconsistent contract.
+
+`soundcheck profile kong` publishes the complete, versioned support boundary behind
+the shorter `assurance` assessment in each verification report. Its modeled,
+conservative, and unsupported feature lists let humans, CI systems, and agents inspect
+what a `proved` result means without reading the implementation. Use `--format json`
+for the stable machine-readable profile schema.
 
 ## The JSON contract
 
@@ -399,7 +410,7 @@ core/          shared engine, the reusable asset
 connectors/    thin frontends (parse→IR, lift counterexample→config vocabulary)
   kong/          decK YAML, first connector
     fragment.ml    decidability boundary: reject what the encoder cannot model
-cli/           soundcheck verify
+cli/           soundcheck verify, soundcheck profile, soundcheck mcp
 mcp/           soundcheck mcp, JSON-RPC 2.0 over stdio
 bench/         labeled corpus + regression gate
 ```
