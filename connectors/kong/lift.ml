@@ -107,8 +107,8 @@ let service_of_route (cfg : Ast.config) (route_name : string) : string option =
 (* A functionality counterexample is a required request that is not guaranteed
    to work. Name one possible winner that rejects it when available; otherwise
    the request falls through to the policy's denying default. *)
-let functionality_counterexample (cfg : Ast.config) (policy : Ir.policy)
-    (m : Solve.model) : Report.counterexample =
+let functionality_counterexample ?(show_source = false) (cfg : Ast.config)
+    (policy : Ir.policy) (m : Solve.model) : Report.counterexample =
   let request : Ir.request =
     { principal = (if m.is_anon then Anonymous else Authenticated "user");
       action = m.method_;
@@ -127,6 +127,10 @@ let functionality_counterexample (cfg : Ast.config) (policy : Ir.policy)
   let route = Option.map (fun (rule : Ir.rule) -> rule.id) rejecting in
   let service = Option.bind route (service_of_route cfg) in
   let principal = if m.is_anon then "anonymous" else "authenticated" in
+  let origin =
+    if show_source then Printf.sprintf " from %s" (Cidr.string_of_ip m.src_ip)
+    else ""
+  in
   let meth = if m.method_ = "" then "<any-method>" else m.method_ in
   let reason =
     match route with
@@ -144,8 +148,8 @@ let functionality_counterexample (cfg : Ast.config) (policy : Ir.policy)
     host = m.host;
     source_ip = m.src_ip;
     note =
-      Printf.sprintf "%s request %s %s is NOT DEFINITELY ALLOWED — %s."
-        principal meth m.path reason }
+      Printf.sprintf "%s request%s %s %s is NOT DEFINITELY ALLOWED — %s."
+        principal origin meth m.path reason }
 
 (* Shadowing names TWO routes: the one that actually serves the request and the
    one written to handle it. Saying only "this request got through" would lose

@@ -5,13 +5,27 @@
     pretending the current Kong-derived request vocabulary is already a
     universal specification language. *)
 
+type source_ip_integrity = Externally_enforced
+(** Acknowledges that the deployment is responsible for ensuring Kong's derived
+    client IP cannot be spoofed. Soundcheck verifies decisions over that value;
+    it does not inspect trusted-proxy or real-IP deployment settings. *)
+
+type kind =
+  | Authenticated_access
+  | Network_restricted_access of {
+      trusted_cidr        : Soundcheck_core.Cidr.t;
+      source_ip_integrity : source_ip_integrity;
+    }
+
 type t = {
   schema_version : int;
-  kind           : string;
+  kind           : kind;
   path_prefix    : string;
   method_        : string option;
   host           : string option;
 }
+
+val kind_name : kind -> string
 
 val parse_string : string -> (t, string) result
 (** Parse a strict YAML/JSON artifact. Unknown fields, unsupported versions and

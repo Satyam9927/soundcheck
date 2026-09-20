@@ -1,0 +1,13 @@
+# External requests fail ip-restriction; authenticated requests from the trusted
+# network remain routable.
+services:
+  - name: internal-api
+    routes:
+      - name: internal-get
+        paths: [/internal]
+        methods: [GET]
+        hosts: [internal.example]
+        plugins:
+          - name: key-auth
+          - name: ip-restriction
+            config: {allow: [10.0.0.0/8]}

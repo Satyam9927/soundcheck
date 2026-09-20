@@ -22,6 +22,19 @@ let response request =
   | Some response -> response
   | None -> failwith "expected an MCP response"
 
+let network_contract =
+  match
+    Contract_spec.parse_string
+      "schema_version: 1\nkind: network-restricted-access\nscope: {path_prefix: /internal, method: GET, trusted_cidr: 10.0.0.0/8}\nassumptions: {source_ip_integrity: externally-enforced}\n"
+  with
+  | Ok contract -> contract
+  | Error error -> failwith error
+
+let network_response request =
+  match Soundcheck_mcp.Server.handle_line ~contract:network_contract request with
+  | Some response -> response
+  | None -> failwith "expected a frozen network MCP response"
+
 let () =
   let discovery =
     response {|{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}|}
@@ -54,4 +67,20 @@ let () =
   if not (contains deny_all "\"result\":\"violated\"")
      || not (contains deny_all "\"kind\":\"must_allow\"")
      || not (contains deny_all "\\\"method\\\":\\\"GET\\\"")
-  then failwith "frozen MCP did not reuse the contract for deny-all repair"
+  then failwith "frozen MCP did not reuse the contract for deny-all repair";
+
+  let network_secure =
+    network_response
+      {|{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"verify","arguments":{"config":"{services: [{name: internal, routes: [{name: internal-get, paths: [/internal], methods: [GET], plugins: [{name: key-auth}, {name: ip-restriction, config: {allow: [10.0.0.0/8]}}]}]}]}"}}}|}
+  in
+  if not (contains network_secure "\"result\":\"proved\"")
+     || not (contains network_secure "network-restricted-access")
+     || not (contains network_secure "externally-enforced")
+  then failwith "frozen MCP omitted network contract verdict or provenance";
+
+  let network_deny_all =
+    network_response
+      {|{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"verify","arguments":{"config":"{services: []}"}}}|}
+  in
+  if not (contains network_deny_all "trusted-authenticated-access-allowed") then
+    failwith "frozen network contract accepted deny-all"

@@ -51,6 +51,32 @@ scope:
             (Soundcheck_core.Report.to_human bound))
   then failwith "human report omitted frozen contract provenance";
 
+  let network =
+    parse
+      {|schema_version: 1
+kind: network-restricted-access
+scope:
+  path_prefix: /internal
+  method: GET
+  host: INTERNAL.EXAMPLE
+  trusted_cidr: 10.1.2.3/8
+assumptions:
+  source_ip_integrity: externally-enforced
+|}
+  in
+  if Contract_spec.kind_name network.kind <> "network-restricted-access"
+     || network.path_prefix <> "/internal"
+  then failwith "network contract kind or scope did not parse";
+  let expected_network =
+    {|{"schema_version":1,"kind":"network-restricted-access","scope":{"path_prefix":"/internal","method":"GET","host":"internal.example","trusted_cidr":"10.0.0.0/8"},"assumptions":{"source_ip_integrity":"externally-enforced"}}|}
+  in
+  if Contract_spec.canonical_json network <> expected_network then
+    failwith "canonical network contract identity changed";
+  (match Contract_spec.to_property network with
+   | Verify.Network_restricted_access { trusted_cidr; _ }
+     when Soundcheck_core.Cidr.to_string trusted_cidr = "10.0.0.0/8" -> ()
+   | _ -> failwith "network contract did not become a typed verifier property");
+
   expect_error "unknown top-level field"
     "schema_version: 1\nkind: authenticated-access\nscope: {path_prefix: /admin}\nproperty: weaker\n"
     "contract: unknown field";
@@ -65,4 +91,13 @@ scope:
     "unsupported contract kind";
   expect_error "missing explicit scope"
     "schema_version: 1\nkind: authenticated-access\nscope: {}\n"
-    "contract.scope.path_prefix is required"
+    "contract.scope.path_prefix is required";
+  expect_error "network missing trusted CIDR"
+    "schema_version: 1\nkind: network-restricted-access\nscope: {path_prefix: /internal}\nassumptions: {source_ip_integrity: externally-enforced}\n"
+    "contract.scope.trusted_cidr is required";
+  expect_error "network missing source assumption"
+    "schema_version: 1\nkind: network-restricted-access\nscope: {path_prefix: /internal, trusted_cidr: 10.0.0.0/8}\n"
+    "contract.assumptions is required";
+  expect_error "network unacknowledged source assumption"
+    "schema_version: 1\nkind: network-restricted-access\nscope: {path_prefix: /internal, trusted_cidr: 10.0.0.0/8}\nassumptions: {source_ip_integrity: verified-by-soundcheck}\n"
+    "contract.assumptions.source_ip_integrity must be"

@@ -18,6 +18,8 @@ let requests =
     {|{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"verify","arguments":{"config":"{services: [{name: admin-api, routes: [{name: admin-route, paths: [/admin], plugins: [{name: key-auth}]}]}]}"}}}|};
     (* paired contract: the same guarded GET route preserves functionality *)
     {|{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"verify","arguments":{"property":"authenticated-access","path_prefix":"/admin","method":"GET","config":"{services: [{name: admin-api, routes: [{name: admin-route, paths: [/admin], methods: [GET], plugins: [{name: key-auth}]}]}]}"}}}|};
+    (* paired network contract: outside denied, trusted authenticated preserved *)
+    {|{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"verify","arguments":{"property":"network-restricted-access","path_prefix":"/internal","method":"GET","trusted_cidr":"10.0.0.0/8","config":"{services: [{name: internal-api, routes: [{name: internal-route, paths: [/internal], methods: [GET], plugins: [{name: key-auth}, {name: ip-restriction, config: {allow: [10.0.0.0/8]}}]}]}]}"}}}|};
   ]
 
 let () =

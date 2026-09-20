@@ -13,11 +13,12 @@ let usage () =
     \                                       [--format human|json] [--emit-smt PATH]\n\
     \  --property     no-anonymous-access (default) | rate-limit-on-public\n\
     \                 | no-shadowed-routes | admin-api-not-reachable\n\
-    \                 | authenticated-access\n\
+    \                 | authenticated-access | network-restricted-access\n\
     \  --path-prefix  prefix for no-anonymous-access (default /admin)\n\
-    \  --trusted-cidr for admin-api-not-reachable (default 127.0.0.1/32)\n\
-    \  --method       optional exact method for authenticated-access (default all)\n\
-    \  --host         optional exact host for authenticated-access (default all)\n\
+    \  --trusted-cidr trusted IPv4 block; required for network-restricted-access\n\
+    \                 (admin-api-not-reachable default 127.0.0.1/32)\n\
+    \  --method       optional exact method for paired contracts (default all)\n\
+    \  --host         optional exact host for paired contracts (default all)\n\
     \  --contract     frozen, human-confirmed contract artifact; excludes property/scope flags\n\
     \  --format       human (default) | json\n\
     \  --emit-smt     write a single-property SMT-LIB2 query to PATH (not contracts)\n\
@@ -74,20 +75,25 @@ let parse_contract_path rest =
   in
   find rest
 
-let parse_trusted_cidr rest =
+let parse_trusted_cidr ?default rest =
   let raw =
     let rec find = function
-      | "--trusted-cidr" :: v :: _ -> v
+      | "--trusted-cidr" :: v :: _ -> Some v
       | _ :: tl -> find tl
-      | [] -> "127.0.0.1/32"
+      | [] -> default
     in
     find rest
   in
-  match Cidr.parse raw with
-  | Ok c -> c
-  | Error e ->
-    Printf.eprintf "bad --trusted-cidr %S: %s\n" raw e;
+  match raw with
+  | None ->
+    prerr_endline "--trusted-cidr is required for network-restricted-access";
     exit 2
+  | Some raw ->
+    (match Cidr.parse raw with
+     | Ok c -> c
+     | Error e ->
+       Printf.eprintf "bad --trusted-cidr %S: %s\n" raw e;
+       exit 2)
 
 let parse_property rest : Verify.property =
   let rec find = function
@@ -96,17 +102,24 @@ let parse_property rest : Verify.property =
     | "--property" :: "rate-limit-on-public" :: _ -> Verify.Rate_limit_on_public
     | "--property" :: "no-shadowed-routes" :: _ -> Verify.No_shadowed_routes
     | "--property" :: "admin-api-not-reachable" :: _ ->
-      Verify.Admin_api_not_reachable (parse_trusted_cidr rest)
+      Verify.Admin_api_not_reachable
+        (parse_trusted_cidr ~default:"127.0.0.1/32" rest)
     | "--property" :: "authenticated-access" :: _ ->
       Verify.Authenticated_access
         { path_prefix = parse_path_prefix rest;
           method_ = parse_optional "--method" rest;
           host = parse_optional "--host" rest }
+    | "--property" :: "network-restricted-access" :: _ ->
+      Verify.Network_restricted_access
+        { path_prefix = parse_path_prefix rest;
+          method_ = parse_optional "--method" rest;
+          host = parse_optional "--host" rest;
+          trusted_cidr = parse_trusted_cidr rest }
     | "--property" :: other :: _ ->
       Printf.eprintf
         "unknown --property %S (expected \
          no-anonymous-access|rate-limit-on-public|no-shadowed-routes|\
-         admin-api-not-reachable|authenticated-access)\n"
+         admin-api-not-reachable|authenticated-access|network-restricted-access)\n"
         other;
       exit 2
     | _ :: tl -> find tl
