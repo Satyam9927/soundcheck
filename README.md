@@ -205,6 +205,21 @@ then identifies the request that defeats the current draft. Running `soundcheck 
 without a contract preserves the manual, mutable property interface for exploration,
 but that mode does not enforce spec-freeze.
 
+The regression workflow starts the real MCP process with the reviewed
+[`admin-get.yaml`](bench/kong/contracts/admin-get.yaml) contract and submits four
+attempts through one server lifetime:
+
+| Attempt | Expected result | Repair signal |
+|---|---|---|
+| [`unsafe.yaml`](bench/kong/workflows/frozen-admin/unsafe.yaml) | `violated` / `must_deny` | anonymous `GET /admin` reaches `admin-get` |
+| [`repaired.yaml`](bench/kong/workflows/frozen-admin/repaired.yaml) | `proved` | both contract clauses hold |
+| [`deny-all.yaml`](bench/kong/workflows/frozen-admin/deny-all.yaml) | `violated` / `must_allow` | authenticated `GET /admin` has no route |
+| repaired config plus a replacement property | tool error | frozen verification accepts only `config` |
+
+Every verification report must carry the same canonical frozen-spec identity. The
+acceptance test drives `soundcheck mcp --contract ...` over stdio rather than calling
+the verifier in-process, so it also pins contract loading and the public MCP boundary.
+
 **Hard, at the gate: CI.** The same binary runs in CI or a pre-apply hook and blocks on
 non-zero exit, regardless of what any agent did or claimed. This is where the actual
 guarantee lives. A prompt is not an enforcement mechanism; an exit code is.
