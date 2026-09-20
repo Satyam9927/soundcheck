@@ -144,7 +144,8 @@ let definitely_allowed_formula (p : Ir.policy) : string =
               (fun (r, selected) ->
                 let allows =
                   match r.Ir.decision with
-                  | Ir.Allow -> cond r.Ir.guard
+                  | Ir.Allow when r.Ir.match_complete -> cond r.Ir.guard
+                  | Ir.Allow -> "false"
                   | Ir.Deny -> "false"
                 in
                 Printf.sprintf "(=> %s %s)" selected allows)

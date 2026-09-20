@@ -93,6 +93,10 @@ type rule = {
           applies policy. Folding policy in here would let a request that fails
           authentication "fall through" to a more permissive rule, which no
           gateway does: it routes first, then returns 401. *)
+  match_complete : bool;
+      (** Whether [match_] exactly captures every routing criterion. An
+          over-approximated match may find conservative safety violations, but
+          cannot establish functionality. *)
   guard        : condition;
       (** POLICY applied once this rule serves the request (e.g. Requires_auth).
           Failing the guard denies the request; it does not re-route it. *)

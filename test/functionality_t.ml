@@ -54,6 +54,16 @@ let host_scoped =
       plugins: [{name: key-auth}]
 |}
 
+let header_scoped =
+  {|services:
+  - name: admin-api
+    routes:
+    - name: admin-header
+      paths: [/admin]
+      headers: {x-role: [admin]}
+      plugins: [{name: key-auth}]
+|}
+
 let () =
   (match (verify secure).Report.result with
    | Proved -> ()
@@ -96,6 +106,12 @@ let () =
   (match (verify host_scoped).result with
    | Violated _ -> ()
    | _ -> failwith "all-host scope must expose the blocked host");
+
+  (match (verify header_scoped).result with
+   | Violated _ -> ()
+   | _ ->
+     failwith
+       "an unmodeled header criterion must not establish functionality");
 
   (match
      Verify.run ~emit_smt:"unused-contract-audit.smt2"

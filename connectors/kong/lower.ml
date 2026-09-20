@@ -306,6 +306,7 @@ let rules_of_route (service : Ast.service) (route : Ast.route) : Ir.rule list =
     (fun path : Ir.rule ->
       { id = route.name;
         match_ = match_condition path route;
+        match_complete = not (unmodelled_match route);
         guard;
         priority = priority_of ~regex_priority:route.regex_priority route path;
         decision = Ir.Allow;

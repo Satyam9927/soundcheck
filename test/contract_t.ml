@@ -2,9 +2,10 @@ open Soundcheck_core
 
 let priority key = Ir.{ comparable = true; key = [ key ] }
 
-let route ?(guard = Ir.True) ?(rank = 1) id =
+let route ?(guard = Ir.True) ?(rank = 1) ?(match_complete = true) id =
   Ir.{ id;
        match_ = Path_prefix "/admin";
+       match_complete;
        guard;
        priority = priority rank;
        decision = Allow;
@@ -89,6 +90,18 @@ let () =
     required_anonymous Solve.Proved;
   if not (Ir.definitely_allows known_open_winner anonymous_admin) then
     failwith "known open winner must definitely allow the request";
+
+  let incomplete : Ir.policy =
+    { request_domain = True;
+      rules = [ route ~match_complete:false "header-scoped" ];
+      default = Deny }
+  in
+  check_clause "incomplete match cannot prove functionality" incomplete
+    required_anonymous
+    (Solve.Violated
+       { path = ""; method_ = ""; is_anon = true; src_ip = 0l; host = "" });
+  if Ir.definitely_allows incomplete anonymous_admin then
+    failwith "incomplete route match must not establish definite allowance";
 
   let all =
     match Cidr.parse "0.0.0.0/0" with Ok cidr -> cidr | Error e -> failwith e

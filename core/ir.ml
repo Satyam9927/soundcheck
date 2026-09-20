@@ -57,6 +57,7 @@ let outranks (a : priority) (b : priority) : bool =
 type rule = {
   id           : string;
   match_       : condition;
+  match_complete : bool;
   guard        : condition;
   priority     : priority;
   decision      : decision;
@@ -117,7 +118,10 @@ let definitely_allows (p : policy) (r : request) : bool =
      | [] -> p.default = Allow
      | possible_winners ->
        List.for_all
-         (fun rule -> rule.decision = Allow && matches rule.guard r)
+         (fun rule ->
+           rule.match_complete
+           && rule.decision = Allow
+           && matches rule.guard r)
          possible_winners
 
 let string_of_decision = function Allow -> "Allow" | Deny -> "Deny"
