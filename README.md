@@ -196,7 +196,7 @@ identically by CI, the MCP tool, and eventually the repair loop.
   "schema_version": 9,
   "property": "no-anonymous-access",
   "assurance": {
-    "profile": "kong-traditional-http-v6",
+    "profile": "kong-traditional-http-v7",
     "status": "within_profile",
     "findings": []
   },
@@ -407,9 +407,11 @@ This is an early project and the boundaries are worth stating plainly.
   tool should fail in, but it does mean unusual setups need the list extended.
 - **Global plugins and plugin precedence are modelled.** A relationship-free root
   `plugins:` entry applies globally. Kong selects the most specific enabled configuration
-  for a plugin name in route → service → global order. Root plugins carrying explicit
-  route, service, or consumer references remain unsupported rather than being mistaken
-  for global.
+  for a plugin name in route+service → route → service → global order. Root plugins may
+  target nested routes and services by string name. Consumer-scoped and non-string
+  references remain unsupported rather than being mistaken for global.
+- **Top-level routes are detected but not yet lowered.** They return `unknown` rather
+  than disappearing from the policy; nest routes under services to stay in-profile.
 - **Unconditional `request-termination` denies upstream access.** A configured trigger
   is conservative because Kong checks both header and query-parameter presence, and query
   parameters are not yet in the IR.
@@ -418,7 +420,7 @@ This is an early project and the boundaries are worth stating plainly.
 
 ## Testing
 
-`bench/kong/cases/` holds 44 labeled cases, each a config plus a golden `expected.json`
+`bench/kong/cases/` holds 45 labeled cases, each a config plus a golden `expected.json`
 produced by the engine and hand-checked against intent. They span the real
 misconfiguration shapes: a missing plugin, service versus route-level auth inheritance, an
 open sibling route, a method-specific gap (`GET` guarded, `POST` open), a leak in a second
