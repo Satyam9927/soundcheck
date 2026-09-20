@@ -30,9 +30,9 @@ type assessment = {
 let feature code description = { code; description }
 
 let profile =
-  { id = "kong-traditional-http-v5";
+  { id = "kong-traditional-http-v6";
     connector = "kong";
-    version = 5;
+    version = 6;
     target = "Kong Gateway traditional/traditional_compatible HTTP routing";
     modeled =
       [ feature "literal-path-prefix" "literal HTTP path-prefix matching";
@@ -48,6 +48,7 @@ let profile =
         feature "known-rate-limit-plugins" "rate-limit coverage from Soundcheck's known plugin list";
         feature "ipv4-ip-restriction" "IPv4 ip-restriction allow and deny guards over Kong's derived client IP";
         feature "request-termination" "unconditional request-termination denial with Kong plugin precedence";
+        feature "global-plugin-scope" "global plugins with route-over-service-over-global precedence";
         feature "default-admin-ports" "Admin API recognition on default ports 8001 and 8444";
         feature "default-deny" "denying fallthrough when no route guard allows a request" ];
     conservative =
@@ -60,7 +61,8 @@ let profile =
         feature "invalid-ip-cidr" "IPv6 or malformed ip-restriction entries are dropped, weakening the guard";
         feature "conditional-request-termination" "triggered request-termination depends on unmodeled query parameters" ];
     unsupported =
-      [ feature "unsupported-path-regex" "non-regular or untranslated regex constructs make the whole result unknown" ] }
+      [ feature "unsupported-path-regex" "non-regular or untranslated regex constructs make the whole result unknown";
+        feature "scoped-root-plugin" "root-level plugins with route, service, or consumer references require flattened scope resolution" ] }
 
 let string_of_status = function
   | Within_profile -> "within_profile"
@@ -69,7 +71,7 @@ let string_of_status = function
 
 let finding ?service ?route code detail = { code; service; route; detail }
 
-let plugin_findings ?route service plugins =
+let plugin_findings ?service ?route plugins =
   List.concat_map
     (fun (plugin : Ast.plugin) ->
       if not plugin.enabled then []
@@ -81,7 +83,7 @@ let plugin_findings ?route service plugins =
       let unknown =
         if known then []
         else
-          [ finding ~service ?route "unrecognized-plugin"
+          [ finding ?service ?route "unrecognized-plugin"
               (Printf.sprintf "plugin %S has no modeled security semantics" plugin.name) ]
       in
       let invalid_cidrs =
@@ -93,14 +95,14 @@ let plugin_findings ?route service plugins =
               | Ok _ -> None
               | Error _ ->
                 Some
-                  (finding ~service ?route "invalid-ip-cidr"
+                  (finding ?service ?route "invalid-ip-cidr"
                      (Printf.sprintf "ip-restriction entry %S is not modeled as IPv4" entry)))
             (plugin.allow @ plugin.deny)
       in
       let conditional_termination =
         match (plugin.name, plugin.trigger) with
         | "request-termination", Some trigger ->
-          [ finding ~service ?route "conditional-request-termination"
+          [ finding ?service ?route "conditional-request-termination"
               (Printf.sprintf
                  "request-termination trigger %S depends on header or query presence"
                  trigger) ]
@@ -146,18 +148,32 @@ let route_findings (service : Ast.service) (route : Ast.route) =
                  (Printf.sprintf "path %S is unsupported: %s" path why)))
       route.paths
   in
-  routing @ regex @ plugin_findings ~route:route.name service.name route.plugins
+  routing @ regex
+  @ plugin_findings ~service:service.name ~route:route.name route.plugins
 
 let assess (config : Ast.config) =
   let findings =
-    List.concat_map
+    plugin_findings config.global_plugins
+    @ List.map
+        (fun (plugin : Ast.plugin) ->
+          finding "scoped-root-plugin"
+            (Printf.sprintf
+               "root-level plugin %S has an explicit relationship that is not modeled"
+               plugin.name))
+        config.scoped_plugins
+    @ List.concat_map
       (fun (service : Ast.service) ->
-        plugin_findings service.name service.plugins
+        plugin_findings ~service:service.name service.plugins
         @ List.concat_map (route_findings service) service.routes)
       config.services
   in
   let status =
-    if List.exists (fun finding -> finding.code = "unsupported-path-regex") findings
+    if
+      List.exists
+        (fun finding ->
+          finding.code = "unsupported-path-regex"
+          || finding.code = "scoped-root-plugin")
+        findings
     then Unsupported
     else if findings = [] then Within_profile
     else Conservative

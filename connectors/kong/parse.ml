@@ -22,28 +22,43 @@ let headers_of (v : Yaml.value option) : (string * string list) list =
 let enabled_of (v : Yaml.value) : bool =
   match member "enabled" v with Some (`Bool b) -> b | _ -> true
 
-let plugins_of (v : Yaml.value option) : Ast.plugin list =
-  match v with
-  | Some (`A xs) ->
-    List.filter_map
-      (fun x ->
-        match member "name" x with
-        | Some (`String n) ->
-          let cfg = member "config" x in
-          let list_in key =
-            match cfg with Some c -> string_list (member key c) | None -> []
-          in
-          Some
-            ({ name = n; enabled = enabled_of x;
-               allow = list_in "allow"; deny = list_in "deny";
-               trigger =
-                 (match cfg with
-                  | Some c -> Option.bind (member "trigger" c) to_string
-                  | None -> None) }
-              : Ast.plugin)
-        | _ -> None)
-      xs
+let plugin_of x =
+  match member "name" x with
+  | Some (`String name) ->
+    let cfg = member "config" x in
+    let list_in key =
+      match cfg with Some value -> string_list (member key value) | None -> []
+    in
+    Some
+      ({ name; enabled = enabled_of x;
+         allow = list_in "allow"; deny = list_in "deny";
+         trigger =
+           (match cfg with
+            | Some value -> Option.bind (member "trigger" value) to_string
+            | None -> None) }
+        : Ast.plugin)
+  | _ -> None
+
+let plugins_of = function
+  | Some (`A values) -> List.filter_map plugin_of values
   | _ -> []
+
+let has_relationship value =
+  List.exists
+    (fun key ->
+      match member key value with None | Some `Null -> false | Some _ -> true)
+    [ "route"; "service"; "consumer"; "consumer_group" ]
+
+let root_plugins_of = function
+  | Some (`A values) ->
+    List.fold_right
+      (fun value (global, scoped) ->
+        match plugin_of value with
+        | None -> (global, scoped)
+        | Some plugin when has_relationship value -> (global, plugin :: scoped)
+        | Some plugin -> (plugin :: global, scoped))
+      values ([], [])
+  | _ -> ([], [])
 
 let name_of v ~default =
   match member "name" v with Some (`String s) -> s | _ -> default
@@ -85,11 +100,14 @@ let service_of (v : Yaml.value) : Ast.service =
   }
 
 let config_of (v : Yaml.value) : Ast.config =
+  let global_plugins, scoped_plugins = root_plugins_of (member "plugins" v) in
   {
     services =
       (match member "services" v with
        | Some (`A xs) -> List.map service_of xs
        | _ -> []);
+    global_plugins;
+    scoped_plugins;
   }
 
 let parse_string (s : string) : (Ast.config, string) result =

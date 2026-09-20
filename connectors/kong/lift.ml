@@ -59,11 +59,11 @@ let offending_route ~culprit (cfg : Ast.config) (model : Solve.model)
 
 (* The default culprit / explanation: a path-matching route that does not require
    authentication (the no-anonymous-access story). *)
-let no_auth_culprit (service : Ast.service) (route : Ast.route) =
-  not (Lower.requires_auth service route)
+let no_auth_culprit config (service : Ast.service) (route : Ast.route) =
+  not (Lower.requires_auth config service route)
 
 let no_auth_missing =
-  "no authentication plugin is attached to the route or its service."
+  "no authentication plugin is attached at route, service, or global scope."
 
 let headers_note headers =
   match headers with
@@ -84,9 +84,10 @@ let transport_note (model : Solve.model) =
    contract (and every adapter over it) is actionable in the user's own terms.
    [culprit] selects the offending route and [missing] names what it lacks, so
    the same lift serves different properties (auth vs rate-limiting). *)
-let counterexample ?(culprit = no_auth_culprit) ?(missing = no_auth_missing)
+let counterexample ?culprit ?(missing = no_auth_missing)
     ?(show_source = false) (cfg : Ast.config) (m : Solve.model) :
     Report.counterexample =
+  let culprit = Option.value culprit ~default:(no_auth_culprit cfg) in
   let principal = if m.is_anon then "anonymous" else "authenticated" in
   (* [show_source] adds the address to the human note only, for properties whose
      whole point is WHERE the request came from. It must not touch [principal]:

@@ -16,19 +16,26 @@ let auth_plugins =
 let is_auth_plugin (name : string) = List.mem name auth_plugins
 
 (* Kong executes at most one configuration for a given plugin name. The most
-   specific enabled entity wins: route before service. A disabled entity is not
-   loaded and therefore does not hide a less-specific enabled configuration. *)
-let effective_plugin name (service : Ast.service) (route : Ast.route) =
+   specific enabled entity wins: route, then service, then global. A disabled
+   entity is not loaded and therefore does not hide a less-specific enabled
+   configuration. *)
+let effective_plugin (config : Ast.config) name (service : Ast.service)
+    (route : Ast.route) =
   let find plugins =
     List.find_opt
       (fun (plugin : Ast.plugin) -> plugin.enabled && plugin.name = name)
       plugins
   in
-  match find route.plugins with Some plugin -> Some plugin | None -> find service.plugins
+  match find route.plugins with
+  | Some plugin -> Some plugin
+  | None ->
+    (match find service.plugins with
+     | Some plugin -> Some plugin
+     | None -> find config.global_plugins)
 
-let requires_auth (service : Ast.service) (route : Ast.route) : bool =
+let requires_auth config (service : Ast.service) (route : Ast.route) : bool =
   List.exists
-    (fun name -> Option.is_some (effective_plugin name service route))
+    (fun name -> Option.is_some (effective_plugin config name service route))
     auth_plugins
 
 (* Kong rate-limiting / throttling plugins. *)
@@ -38,13 +45,13 @@ let rate_limit_plugins =
 
 let is_rate_limit_plugin (name : string) = List.mem name rate_limit_plugins
 
-let rate_limited (service : Ast.service) (route : Ast.route) : bool =
+let rate_limited config (service : Ast.service) (route : Ast.route) : bool =
   List.exists
-    (fun name -> Option.is_some (effective_plugin name service route))
+    (fun name -> Option.is_some (effective_plugin config name service route))
     rate_limit_plugins
 
-let request_termination (service : Ast.service) (route : Ast.route) =
-  effective_plugin "request-termination" service route
+let request_termination config (service : Ast.service) (route : Ast.route) =
+  effective_plugin config "request-termination" service route
 
 (* One route path as an IR condition.
 
@@ -227,9 +234,11 @@ let cidrs_of (entries : string list) : Ir.condition list =
     (fun e -> match Cidr.parse e with Ok c -> Some (Ir.Source_in c) | Error _ -> None)
     entries
 
-let ip_restriction_condition (service : Ast.service) (route : Ast.route) :
+let ip_restriction_condition config (service : Ast.service) (route : Ast.route) :
     Ir.condition =
-  let plugins = Option.to_list (effective_plugin "ip-restriction" service route) in
+  let plugins =
+    Option.to_list (effective_plugin config "ip-restriction" service route)
+  in
   let conds =
     List.concat_map
       (fun (p : Ast.plugin) ->
@@ -241,21 +250,23 @@ let ip_restriction_condition (service : Ast.service) (route : Ast.route) :
   in
   match conds with [] -> Ir.True | cs -> Ir.And cs
 
-let guard_condition (service : Ast.service) (route : Ast.route) : Ir.condition =
-  let auth = if requires_auth service route then Ir.Requires_auth else Ir.True in
+let guard_condition config (service : Ast.service) (route : Ast.route) : Ir.condition =
+  let auth =
+    if requires_auth config service route then Ir.Requires_auth else Ir.True
+  in
   let protocol =
     if List.mem "https" route.protocols && not (List.mem "http" route.protocols)
     then Ir.Scheme_is "https"
     else Ir.True
   in
   let termination =
-    match request_termination service route with
+    match request_termination config service route with
     | Some { trigger = None; _ } -> Ir.Or []
     | Some { trigger = Some _; _ } | None -> Ir.True
   in
   match
     List.filter (fun c -> c <> Ir.True)
-      [ protocol; auth; ip_restriction_condition service route; termination ]
+      [ protocol; auth; ip_restriction_condition config service route; termination ]
   with
   | [] -> Ir.True
   | [ c ] -> c
@@ -371,7 +382,7 @@ let priority_of ~(regex_priority : int) ~(include_sni : bool)
    preserving under the current flat-OR encoder since (or (or p1 p2)) = (or p1 p2).
    Both rules keep the route's name as [id], so counterexample lifting is
    unaffected. *)
-let rules_of_route (service : Ast.service) (route : Ast.route) : Ir.rule list =
+let rules_of_route config (service : Ast.service) (route : Ast.route) : Ir.rule list =
   if
     not
       (List.exists
@@ -382,8 +393,8 @@ let rules_of_route (service : Ast.service) (route : Ast.route) : Ir.rule list =
   let paths =
     match route.paths with [] -> [ None ] | ps -> List.map (fun p -> Some p) ps
   in
-  let guard = guard_condition service route in
-  let rate_limited = rate_limited service route in
+  let guard = guard_condition config service route in
+  let rate_limited = rate_limited config service route in
   let targets_admin = targets_admin_api service in
   let variants =
     if route.snis = [] then [ Unscoped ]
@@ -413,7 +424,7 @@ let to_policy (cfg : Ast.config) : Ir.policy =
   let rules =
     List.concat_map
       (fun (service : Ast.service) ->
-        List.concat_map (rules_of_route service) service.routes)
+        List.concat_map (rules_of_route cfg service) service.routes)
       cfg.services
   in
   { request_domain =

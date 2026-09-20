@@ -121,8 +121,9 @@ type rule = {
   decision      : decision;    (** effect produced when it applies *)
   rate_limited  : bool;
       (** metadata (not a reachability guard): a rate-limiting / throttling plugin
-          is attached to this rule's route or its service. Consumed by structural
-          properties like rate-limit-on-public; ignored by {!evaluate}. *)
+          applies to this rule in the connector's effective scope. Consumed by
+          structural properties like rate-limit-on-public; ignored by
+          {!evaluate}. *)
   targets_admin : bool;
       (** metadata: this rule's route proxies to the target's administrative API.
           Consumed by admin-api-not-reachable; ignored by {!evaluate}.
