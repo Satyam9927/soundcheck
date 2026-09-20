@@ -28,6 +28,21 @@ type frozen_spec = {
   canonical      : string;
 }
 
+type assurance_status = Within_profile | Conservative | Unsupported
+
+type assurance_finding = {
+  code    : string;
+  service : string option;
+  route   : string option;
+  detail  : string;
+}
+
+type assurance = {
+  profile  : string;
+  status   : assurance_status;
+  findings : assurance_finding list;
+}
+
 type outcome =
   | Proved
   | Vacuous
@@ -39,6 +54,7 @@ type t = {
   result               : outcome;
   property_name        : string;
   property_description  : string;
+  assurance             : assurance option;
   clause               : clause option;
   frozen_spec          : frozen_spec option;
 }
@@ -61,9 +77,28 @@ let to_human t =
     | Unknown reason ->
       Printf.sprintf "UNKNOWN  %s" reason
   in
+  let with_assurance =
+    match t.assurance with
+    | None -> verdict
+    | Some assurance ->
+      let status =
+        match assurance.status with
+        | Within_profile -> "within_profile"
+        | Conservative -> "conservative"
+        | Unsupported -> "unsupported"
+      in
+      let header =
+        Printf.sprintf "%s\n         Assurance: %s (%s)" verdict assurance.profile status
+      in
+      List.fold_left
+        (fun text finding ->
+          Printf.sprintf "%s\n         - %s: %s" text finding.code finding.detail)
+        header assurance.findings
+  in
   match t.frozen_spec with
-  | None -> verdict
-  | Some spec -> Printf.sprintf "%s\n         Frozen spec: %s" verdict spec.canonical
+  | None -> with_assurance
+  | Some spec ->
+    Printf.sprintf "%s\n         Frozen spec: %s" with_assurance spec.canonical
 
 (* --- json (hand-rolled: schema is small and flat) --- *)
 
@@ -94,7 +129,7 @@ let jopt = function
 (* Bumped when the shape changes in a way a consumer must notice. Adding an
    always-present field counts; every key below is emitted unconditionally
    (null when absent) so a consumer never has to probe for existence. *)
-let schema_version = 6
+let schema_version = 7
 
 let counterexample_json ce =
   Printf.sprintf
@@ -117,12 +152,33 @@ let frozen_spec_json = function
     Printf.sprintf "{\"schema_version\":%d,\"kind\":%s,\"canonical\":%s}"
       spec.schema_version (jstring spec.kind) (jstring spec.canonical)
 
+let assurance_status_string = function
+  | Within_profile -> "within_profile"
+  | Conservative -> "conservative"
+  | Unsupported -> "unsupported"
+
+let assurance_finding_json finding =
+  Printf.sprintf "{\"code\":%s,\"service\":%s,\"route\":%s,\"detail\":%s}"
+    (jstring finding.code) (jopt finding.service) (jopt finding.route)
+    (jstring finding.detail)
+
+let assurance_json = function
+  | None -> "null"
+  | Some assurance ->
+    let findings =
+      assurance.findings |> List.map assurance_finding_json |> String.concat ","
+    in
+    Printf.sprintf "{\"profile\":%s,\"status\":%s,\"findings\":[%s]}"
+      (jstring assurance.profile)
+      (jstring (assurance_status_string assurance.status)) findings
+
 let to_json t =
   let prop = jstring t.property_name in
   let head =
     Printf.sprintf
-      "\"schema_version\":%d,\"property\":%s,\"frozen_spec\":%s,\"clause\":%s"
-      schema_version prop (frozen_spec_json t.frozen_spec) (clause_json t.clause)
+      "\"schema_version\":%d,\"property\":%s,\"assurance\":%s,\"frozen_spec\":%s,\"clause\":%s"
+      schema_version prop (assurance_json t.assurance)
+      (frozen_spec_json t.frozen_spec) (clause_json t.clause)
   in
   match t.result with
   | Proved ->

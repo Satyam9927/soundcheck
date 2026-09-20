@@ -39,6 +39,7 @@ scope:
     { result = Soundcheck_core.Report.Proved;
       property_name = "authenticated-access";
       property_description = "frozen";
+      assurance = None;
       clause = None;
       frozen_spec = None }
   in

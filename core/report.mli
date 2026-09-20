@@ -49,6 +49,24 @@ type frozen_spec = {
     opaque string and exposes it so a consumer can compare the exact frozen
     specification behind two verdicts. *)
 
+type assurance_status = Within_profile | Conservative | Unsupported
+
+type assurance_finding = {
+  code    : string;
+  service : string option;
+  route   : string option;
+  detail  : string;
+}
+
+type assurance = {
+  profile  : string;
+  status   : assurance_status;
+  findings : assurance_finding list;
+}
+(** Connector-owned semantic profile identity and assessment of the parsed
+    artifact. [Conservative] may over-report but must not create a false proof;
+    [Unsupported] means the outcome is [Unknown]. *)
+
 type outcome =
   | Proved                     (** property holds for all requests *)
   | Vacuous                    (** the property's forbidden request class is empty *)
@@ -60,6 +78,7 @@ type t = {
   result               : outcome;
   property_name        : string;
   property_description  : string;
+  assurance             : assurance option;
   clause               : clause option;
   frozen_spec          : frozen_spec option;
 }
@@ -74,8 +93,11 @@ val schema_version : int
 val to_json : t -> string
 (** The stable, versioned JSON contract:
     {[ { "result": "violated|proved|vacuous|inconsistent|unknown",
-         "schema_version": 6,
+         "schema_version": 7,
          "property": "...",
+         "assurance": { "profile": "...",
+                         "status": "within_profile|conservative|unsupported",
+                         "findings": [] },
          "frozen_spec": { "schema_version": 1, "kind": "...",
                           "canonical": "..." },
          "clause": { "name": "...", "description": "...",
@@ -84,7 +106,8 @@ val to_json : t -> string
                              "source_ip", "route", "service",
                              "shadowed_route", "shadowed_service" } } ]}
     Every key is emitted unconditionally, [null] when absent, so consumers never
-    probe for existence. [clause] is [null] for a legacy single property and
+    probe for existence. [assurance] is [null] only when connector-neutral core
+    code constructs a report without a semantic profile. [clause] is [null] for a legacy single property and
     [frozen_spec] is [null] for verification not bound to an external artifact.
     [counterexample] is [null] for [Proved], [Vacuous], and [Inconsistent]; for
     [Unknown] and [Inconsistent] a ["reason"] field carries the explanation.
