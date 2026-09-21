@@ -83,7 +83,7 @@ Requires OCaml 5.x, dune, the `yaml` opam library, and the **`z3` CLI binary** o
 brew install z3                 # or: apt install z3
 opam install dune yaml
 dune build
-dune test                       # runs the 38-case corpus regression gate
+dune test                       # runs the 46-case corpus regression gate
 ```
 
 Verify a config:
@@ -196,7 +196,7 @@ identically by CI, the MCP tool, and eventually the repair loop.
   "schema_version": 9,
   "property": "no-anonymous-access",
   "assurance": {
-    "profile": "kong-traditional-http-v7",
+    "profile": "kong-traditional-http-v8",
     "status": "within_profile",
     "findings": []
   },
@@ -410,8 +410,9 @@ This is an early project and the boundaries are worth stating plainly.
   for a plugin name in route+service → route → service → global order. Root plugins may
   target nested routes and services by string name. Consumer-scoped and non-string
   references remain unsupported rather than being mistaken for global.
-- **Top-level routes are detected but not yet lowered.** They return `unknown` rather
-  than disappearing from the policy; nest routes under services to stay in-profile.
+- **Top-level routes participate in routing.** String `service` references resolve to
+  their declared service, while service-less routes win selection normally and deny
+  upstream access with Kong's 503 behavior. Non-string service references remain unsupported.
 - **Unconditional `request-termination` denies upstream access.** A configured trigger
   is conservative because Kong checks both header and query-parameter presence, and query
   parameters are not yet in the IR.
@@ -420,7 +421,7 @@ This is an early project and the boundaries are worth stating plainly.
 
 ## Testing
 
-`bench/kong/cases/` holds 45 labeled cases, each a config plus a golden `expected.json`
+`bench/kong/cases/` holds 46 labeled cases, each a config plus a golden `expected.json`
 produced by the engine and hand-checked against intent. They span the real
 misconfiguration shapes: a missing plugin, service versus route-level auth inheritance, an
 open sibling route, a method-specific gap (`GET` guarded, `POST` open), a leak in a second

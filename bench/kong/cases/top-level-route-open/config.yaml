@@ -1,0 +1,7 @@
+# A top-level route references its service by declarative name and remains open.
+services:
+  - name: api
+routes:
+  - name: admin
+    service: api
+    paths: [/admin]

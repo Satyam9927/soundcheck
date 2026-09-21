@@ -123,17 +123,43 @@ let service_of (v : Yaml.value) : Ast.service =
     plugins = plugins_of (member "plugins" v);
   }
 
+let top_level_route_of value : Ast.top_level_route =
+  let service, unsupported_reference = relationship_name "service" value in
+  { route = route_of value; service; unsupported_reference }
+
 let config_of (v : Yaml.value) : Ast.config =
   let global_plugins, scoped_plugins = root_plugins_of (member "plugins" v) in
+  let top_level_routes =
+    match member "routes" v with
+    | Some (`A values) -> List.map top_level_route_of values
+    | _ -> []
+  in
+  let services =
+    match member "services" v with
+    | Some (`A values) -> List.map service_of values
+    | _ -> []
+  in
+  let services =
+    List.map
+      (fun (service : Ast.service) ->
+        let referenced_routes =
+          List.filter_map
+            (fun (top : Ast.top_level_route) ->
+              if
+                not top.unsupported_reference
+                && top.service = Some service.name
+              then Some top.route
+              else None)
+            top_level_routes
+        in
+        { service with routes = service.routes @ referenced_routes })
+      services
+  in
   {
-    services =
-      (match member "services" v with
-       | Some (`A xs) -> List.map service_of xs
-       | _ -> []);
+    services;
     global_plugins;
     scoped_plugins;
-    has_top_level_routes =
-      (match member "routes" v with Some (`A (_ :: _)) -> true | _ -> false);
+    top_level_routes;
   }
 
 let parse_string (s : string) : (Ast.config, string) result =

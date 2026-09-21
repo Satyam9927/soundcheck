@@ -30,9 +30,9 @@ type assessment = {
 let feature code description = { code; description }
 
 let profile =
-  { id = "kong-traditional-http-v7";
+  { id = "kong-traditional-http-v8";
     connector = "kong";
-    version = 7;
+    version = 8;
     target = "Kong Gateway traditional/traditional_compatible HTTP routing";
     modeled =
       [ feature "literal-path-prefix" "literal HTTP path-prefix matching";
@@ -50,6 +50,7 @@ let profile =
         feature "request-termination" "unconditional request-termination denial with Kong plugin precedence";
         feature "global-plugin-scope" "global plugins with route-over-service-over-global precedence";
         feature "root-route-service-plugin-scope" "root plugins scoped by string route/service references";
+        feature "top-level-route" "top-level routes with string service references or denying no-service behavior";
         feature "default-admin-ports" "Admin API recognition on default ports 8001 and 8444";
         feature "default-deny" "denying fallthrough when no route guard allows a request" ];
     conservative =
@@ -65,7 +66,7 @@ let profile =
       [ feature "unsupported-path-regex" "non-regular or untranslated regex constructs make the whole result unknown";
         feature "consumer-scoped-plugin" "consumer-scoped plugins require a richer principal identity model";
         feature "non-string-plugin-reference" "non-string root plugin references are not resolved";
-        feature "top-level-route" "top-level routes require service-reference resolution" ] }
+        feature "non-string-route-service-reference" "non-string top-level route service references are not resolved" ] }
 
 let string_of_status = function
   | Within_profile -> "within_profile"
@@ -114,8 +115,8 @@ let plugin_findings ?service ?route plugins =
       unknown @ invalid_cidrs @ conditional_termination)
     plugins
 
-let route_findings (service : Ast.service) (route : Ast.route) =
-  let location code detail = finding ~service:service.name ~route:route.name code detail in
+let route_findings ?service (route : Ast.route) =
+  let location code detail = finding ?service ~route:route.name code detail in
   let routing =
     (if
        List.exists
@@ -152,7 +153,7 @@ let route_findings (service : Ast.service) (route : Ast.route) =
       route.paths
   in
   routing @ regex
-  @ plugin_findings ~service:service.name ~route:route.name route.plugins
+  @ plugin_findings ?service ~route:route.name route.plugins
 
 let assess (config : Ast.config) =
   let findings =
@@ -180,14 +181,24 @@ let assess (config : Ast.config) =
           in
           plugin_semantics @ unsupported)
         config.scoped_plugins
-    @ (if config.has_top_level_routes then
-         [ finding "top-level-route"
-             "config has top-level routes whose service references are not modeled" ]
-       else [])
+    @ List.filter_map
+        (fun (top : Ast.top_level_route) ->
+          if top.unsupported_reference then
+            Some
+              (finding ~route:top.route.name
+                 "non-string-route-service-reference"
+                 "top-level route has a non-string service reference")
+          else None)
+        config.top_level_routes
+    @ (config.top_level_routes
+      |> List.filter (fun (top : Ast.top_level_route) ->
+             top.service = None && not top.unsupported_reference)
+      |> List.concat_map (fun (top : Ast.top_level_route) ->
+             route_findings top.route))
     @ List.concat_map
       (fun (service : Ast.service) ->
         plugin_findings ~service:service.name service.plugins
-        @ List.concat_map (route_findings service) service.routes)
+        @ List.concat_map (route_findings ~service:service.name) service.routes)
       config.services
   in
   let status =
@@ -196,7 +207,8 @@ let assess (config : Ast.config) =
         (fun finding ->
           List.mem finding.code
             [ "unsupported-path-regex"; "consumer-scoped-plugin";
-              "non-string-plugin-reference"; "top-level-route" ])
+              "non-string-plugin-reference";
+              "non-string-route-service-reference" ])
         findings
     then Unsupported
     else if findings = [] then Within_profile
