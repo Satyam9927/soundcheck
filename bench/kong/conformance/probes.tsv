@@ -1,0 +1,14 @@
+# name|method|path|host|header (use - when absent)
+literal-long|GET|/literal/deep/item|-|-
+literal-short|GET|/literal/other|-|-
+regex-over-prefix|GET|/items/42|-|-
+prefix-fallback|GET|/items/not-a-number|-|-
+method-category|GET|/method|-|-
+method-fallback|POST|/method|-|-
+host-category|GET|/host|api.example|-
+host-fallback|GET|/host|other.example|-
+header-category|GET|/header|-|x-region:us
+header-fallback|GET|/header|-|x-region:eu
+regex-priority|GET|/priority/special|-|-
+service-less|GET|/service-less|-|-
+default-deny|GET|/not-configured|-|-

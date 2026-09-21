@@ -11,3 +11,10 @@
  (name survey)
  (modules survey)
  (libraries soundcheck_core soundcheck_kong yaml))
+
+; Concrete oracle used by the opt-in differential test against a real Kong.
+; This is deliberately not a dune test: Docker is not part of the unit-test gate.
+(executable
+ (name kong_model_oracle)
+ (modules kong_model_oracle)
+ (libraries soundcheck_core soundcheck_kong))
