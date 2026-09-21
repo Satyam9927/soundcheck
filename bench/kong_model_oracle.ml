@@ -3,7 +3,7 @@ open Soundcheck_kong
 
 let usage () =
   prerr_endline
-    "usage: kong_model_oracle CONFIG METHOD PATH HOST [HEADER-NAME:VALUE ...]";
+    "usage: kong_model_oracle CONFIG SCHEME METHOD PATH HOST SNI [HEADER-NAME:VALUE ...]";
   exit 2
 
 let parse_header value =
@@ -38,7 +38,7 @@ let service_for_route (config : Ast.config) route =
     exit 2
 
 let () =
-  if Array.length Sys.argv < 5 then usage ();
+  if Array.length Sys.argv < 7 then usage ();
   let config =
     match Parse.parse_file Sys.argv.(1) with
     | Ok config -> config
@@ -51,18 +51,18 @@ let () =
    | Error error -> prerr_endline error; exit 2
    | Ok () -> ());
   let headers =
-    List.init (Array.length Sys.argv - 5) (fun index ->
-        parse_header Sys.argv.(index + 5))
+    List.init (Array.length Sys.argv - 7) (fun index ->
+        parse_header Sys.argv.(index + 7))
   in
   let request : Ir.request =
     { principal = Anonymous;
-      action = String.uppercase_ascii Sys.argv.(2);
-      resource = Sys.argv.(3);
+      action = String.uppercase_ascii Sys.argv.(3);
+      resource = Sys.argv.(4);
       context = headers;
       source = 0l;
-      host = String.lowercase_ascii Sys.argv.(4);
-      scheme = "http";
-      sni = "" }
+      host = String.lowercase_ascii Sys.argv.(5);
+      scheme = String.lowercase_ascii Sys.argv.(2);
+      sni = String.lowercase_ascii Sys.argv.(6) }
   in
   let policy = Lower.to_policy config in
   let routes =

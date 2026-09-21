@@ -5,9 +5,10 @@ This opt-in harness sends a fixed request matrix through a pinned Kong OSS
 the decision, selected route, and selected service. It runs both supported
 router flavors: `traditional` and `traditional_compatible`.
 
-The initial slice covers literal and regex paths, methods, hosts, exact headers,
-route priority, service-less routes, and default denial. HTTPS/SNI and plugin
-execution require additional runtime setup and remain follow-up slices.
+The matrix covers literal and regex paths, methods, hosts, exact headers, route
+priority, service-less routes, default denial, HTTP/HTTPS protocol selection,
+exact SNI, and Kong's HTTP bypass of SNI matching. Plugin execution remains a
+follow-up slice only where it materially improves the assurance claim.
 
 Docker is intentionally not part of `dune test`. Run the harness explicitly:
 
