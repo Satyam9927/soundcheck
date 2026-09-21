@@ -83,17 +83,29 @@ let auth_condition config (service : Ast.service) (route : Ast.route) =
   in
   match conditions with [] -> Ir.True | [ condition ] -> condition | _ -> Ir.And conditions
 
-(* Kong rate-limiting / throttling plugins. *)
-let rate_limit_plugins =
-  [ "rate-limiting"; "rate-limiting-advanced"; "response-ratelimiting";
-    "graphql-rate-limiting-advanced" ]
+(* General request-rate plugins cover every request that reaches the route.
+   Response and GraphQL rate limiting are deliberately separate: the former
+   depends on upstream usage headers, while the latter covers GraphQL query
+   cost rather than arbitrary HTTP traffic. *)
+let general_rate_limit_plugins =
+  [ "rate-limiting"; "rate-limiting-advanced" ]
 
-let is_rate_limit_plugin (name : string) = List.mem name rate_limit_plugins
+let specialized_rate_limit_plugins =
+  [ "response-ratelimiting"; "graphql-rate-limiting-advanced" ]
+
+let is_general_rate_limit_plugin name =
+  List.mem name general_rate_limit_plugins
+
+let is_specialized_rate_limit_plugin name =
+  List.mem name specialized_rate_limit_plugins
+
+let is_rate_limit_plugin name =
+  is_general_rate_limit_plugin name || is_specialized_rate_limit_plugin name
 
 let rate_limited config (service : Ast.service) (route : Ast.route) : bool =
   List.exists
     (fun name -> Option.is_some (effective_plugin config name service route))
-    rate_limit_plugins
+    general_rate_limit_plugins
 
 let request_termination config (service : Ast.service) (route : Ast.route) =
   effective_plugin config "request-termination" service route

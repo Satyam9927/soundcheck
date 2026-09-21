@@ -1,0 +1,14 @@
+# Response rate limiting consumes quota according to a usage header emitted by
+# the upstream. Its presence alone does not establish general request-rate coverage.
+services:
+  - name: public-api
+    url: http://upstream:8000
+    routes:
+      - name: public
+        paths: [/public]
+        plugins:
+          - name: response-ratelimiting
+            config:
+              limits:
+                requests:
+                  minute: 10

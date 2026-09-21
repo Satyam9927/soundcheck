@@ -69,6 +69,10 @@
  (name auth_plugin_bypass_t)
  (libraries soundcheck_core soundcheck_kong))
 
+(test
+ (name rate_limit_coverage_t)
+ (libraries soundcheck_core soundcheck_kong))
+
 (executable
  (name profile_cli_t)
  (libraries soundcheck_kong unix))

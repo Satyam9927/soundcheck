@@ -110,7 +110,7 @@ let resolve (cfg : Ast.config) :
               not (Lower.requires_auth cfg s r)
               && not (Lower.rate_limited cfg s r))
             ~missing:
-              "no rate-limiting plugin is attached at route, service, or global scope."
+              "no recognized general request-rate limit is attached at route, service, or global scope."
             cfg m )
   | Admin_api_not_reachable trusted ->
     Some

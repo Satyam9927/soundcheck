@@ -83,7 +83,7 @@ Requires OCaml 5.x, dune, the `yaml` opam library, and the **`z3` CLI binary** o
 brew install z3                 # or: apt install z3
 opam install dune yaml
 dune build
-dune test                       # runs the 48-case corpus regression gate
+dune test                       # runs the 50-case corpus regression gate
 ```
 
 Verify a config:
@@ -196,7 +196,7 @@ identically by CI, the MCP tool, and eventually the repair loop.
   "schema_version": 9,
   "property": "no-anonymous-access",
   "assurance": {
-    "profile": "kong-traditional-http-v9",
+    "profile": "kong-traditional-http-v10",
     "status": "within_profile",
     "findings": []
   },
@@ -298,7 +298,7 @@ against the shared decision IR, so it applies to every connector that lowers int
 | Property | Status | Question it answers |
 |---|---|---|
 | `no-anonymous-access` | shipped | Can any unauthenticated request reach a protected path prefix? |
-| `rate-limit-on-public` | shipped | Is every anonymously-reachable route covered by a rate-limiting plugin? |
+| `rate-limit-on-public` | shipped | Is every anonymously-reachable route covered by a general request-rate limiting plugin? |
 | `no-shadowed-routes` | shipped | Does a permissive route intercept traffic a stricter route was written to handle? |
 | `admin-api-not-reachable` | shipped | Can an *anonymous* request from outside a trusted address block reach a route proxying the Admin API? |
 | `authenticated-access` | shipped | Are anonymous requests denied while authenticated requests remain definitely allowed in one explicit scope? |
@@ -309,6 +309,9 @@ solver is asked whether a request is reachable *specifically via an unthrottled 
 This fits a structural question into the same per-request existential the engine already
 emits, with no second query engine, and auth-required routes fall out as exempt for free
 since an anonymous request cannot reach them in the first place.
+Only `rate-limiting` and `rate-limiting-advanced` establish this general coverage.
+Response rate limiting depends on upstream usage headers, while GraphQL rate limiting
+covers query cost; both remain visible as conservative findings rather than false proofs.
 
 `admin-api-not-reachable` is scoped to agree with Kong's own hardening guide, which
 sanctions two protections for the Admin API: restrict the network, or put the route behind
@@ -425,7 +428,7 @@ This is an early project and the boundaries are worth stating plainly.
 
 ## Testing
 
-`bench/kong/cases/` holds 48 labeled cases, each a config plus a golden `expected.json`
+`bench/kong/cases/` holds 50 labeled cases, each a config plus a golden `expected.json`
 produced by the engine and hand-checked against intent. They span the real
 misconfiguration shapes: a missing plugin, service versus route-level auth inheritance, an
 open sibling route, a method-specific gap (`GET` guarded, `POST` open), a leak in a second

@@ -1,0 +1,13 @@
+# GraphQL rate limiting covers query cost, not arbitrary HTTP traffic represented
+# by the current request IR, so it cannot prove general request-rate coverage.
+services:
+  - name: public-api
+    url: http://upstream:8000
+    routes:
+      - name: public
+        paths: [/public]
+        plugins:
+          - name: graphql-rate-limiting-advanced
+            config:
+              limit: [100]
+              window_size: [60]
