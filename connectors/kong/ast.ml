@@ -17,6 +17,12 @@ type plugin = {
   trigger : string option;
       (* request-termination's optional header/query trigger. When present the
          plugin is conditional rather than an unconditional denial. *)
+  anonymous_fallback : bool;
+      (* Authentication plugin [config.anonymous]. Failed authentication is
+         proxied as that Consumer rather than rejected. *)
+  run_on_preflight : bool;
+      (* Key Auth/JWT default this to true. When false, OPTIONS requests bypass
+         that plugin's authentication check. *)
 }
 
 type route = {

@@ -1,0 +1,12 @@
+# JWT can explicitly skip authentication for OPTIONS preflight requests. The
+# route is protected for other methods but remains anonymously reachable here.
+services:
+  - name: api
+    url: http://upstream:8000
+    routes:
+      - name: admin
+        paths: [/admin]
+        plugins:
+          - name: jwt
+            config:
+              run_on_preflight: false
