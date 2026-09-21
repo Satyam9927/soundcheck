@@ -24,8 +24,8 @@ let contains haystack needle =
   needle_length = 0 || search 0
 
 let () =
-  if Assurance.profile.id <> "kong-traditional-http-v9"
-     || Assurance.profile.version <> 9
+  if Assurance.profile.id <> "kong-traditional-http-v10"
+     || Assurance.profile.version <> 10
   then failwith "assurance profile identity changed";
 
   let within =
@@ -59,14 +59,14 @@ let () =
     failwith "unsupported regex finding missing";
 
   let expected_json =
-    {|{"schema_version":1,"id":"kong-traditional-http-v9","connector":"kong","version":9,"target":"Kong Gateway traditional/traditional_compatible HTTP routing","modeled":[{"code":"literal-path-prefix","description":"literal HTTP path-prefix matching"},{"code":"normalized-request-path","description":"Kong-normalized request-path domain and literal route validation"},{"code":"regular-path-regex","description":"the documented regular subset of Kong path regexes"},{"code":"http-method","description":"HTTP method matching"},{"code":"lowercase-host","description":"lowercase exact and wildcard Host matching"},{"code":"exact-header-match","description":"case-insensitive exact HTTP header matching, including repeated values"},{"code":"http-https-protocol","description":"HTTP subsystem selection and HTTPS-only rejection"},{"code":"exact-sni","description":"exact SNI matching for HTTPS and Kong's HTTP bypass"},{"code":"traditional-route-priority","description":"two-layer traditional-router priority without created_at"},{"code":"known-auth-plugins","description":"authentication requirement from Soundcheck's known plugin list"},{"code":"auth-preflight-bypass","description":"Key Auth and JWT OPTIONS bypass when run_on_preflight is false"},{"code":"known-rate-limit-plugins","description":"rate-limit coverage from Soundcheck's known plugin list"},{"code":"ipv4-ip-restriction","description":"IPv4 ip-restriction allow and deny guards over Kong's derived client IP"},{"code":"request-termination","description":"unconditional request-termination denial with Kong plugin precedence"},{"code":"global-plugin-scope","description":"global plugins with route-over-service-over-global precedence"},{"code":"root-route-service-plugin-scope","description":"root plugins scoped by string route/service references"},{"code":"top-level-route","description":"top-level routes with string service references or denying no-service behavior"},{"code":"default-admin-ports","description":"Admin API recognition on default ports 8001 and 8444"},{"code":"default-deny","description":"denying fallthrough when no route guard allows a request"}],"conservative":[{"code":"route-created-at-tie","description":"created_at is absent from decK and unresolved route order remains tied"},{"code":"route-header-regex","description":"regex header values are over-approximated and the route is left incomparable"},{"code":"wildcard-sni","description":"wildcard SNI depends on router flavor and is over-approximated"},{"code":"route-stream-match","description":"source/destination criteria are over-approximated and the route is left incomparable"},{"code":"uppercase-host","description":"uppercase route hosts are left incomparable because request hosts are lowercased"},{"code":"unrecognized-plugin","description":"unrecognized plugins provide no modeled auth or rate-limit behavior"},{"code":"invalid-ip-cidr","description":"IPv6 or malformed ip-restriction entries are dropped, weakening the guard"},{"code":"conditional-request-termination","description":"triggered request-termination depends on unmodeled query parameters"},{"code":"auth-anonymous-fallback","description":"authentication anonymous fallback is over-approximated without resolving Consumers"}],"unsupported":[{"code":"unsupported-path-regex","description":"non-regular or untranslated regex constructs make the whole result unknown"},{"code":"consumer-scoped-plugin","description":"consumer-scoped plugins require a richer principal identity model"},{"code":"non-string-plugin-reference","description":"non-string root plugin references are not resolved"},{"code":"non-string-route-service-reference","description":"non-string top-level route service references are not resolved"}]}|}
+    {|{"schema_version":1,"id":"kong-traditional-http-v10","connector":"kong","version":10,"target":"Kong Gateway traditional/traditional_compatible HTTP routing","modeled":[{"code":"literal-path-prefix","description":"literal HTTP path-prefix matching"},{"code":"normalized-request-path","description":"Kong-normalized request-path domain and literal route validation"},{"code":"regular-path-regex","description":"the documented regular subset of Kong path regexes"},{"code":"http-method","description":"HTTP method matching"},{"code":"lowercase-host","description":"lowercase exact and wildcard Host matching"},{"code":"exact-header-match","description":"case-insensitive exact HTTP header matching, including repeated values"},{"code":"http-https-protocol","description":"HTTP subsystem selection and HTTPS-only rejection"},{"code":"exact-sni","description":"exact SNI matching for HTTPS and Kong's HTTP bypass"},{"code":"traditional-route-priority","description":"two-layer traditional-router priority without created_at"},{"code":"known-auth-plugins","description":"authentication requirement from Soundcheck's known plugin list"},{"code":"auth-preflight-bypass","description":"Key Auth and JWT OPTIONS bypass when run_on_preflight is false"},{"code":"general-request-rate-limit","description":"request-rate coverage from rate-limiting and rate-limiting-advanced"},{"code":"ipv4-ip-restriction","description":"IPv4 ip-restriction allow and deny guards over Kong's derived client IP"},{"code":"request-termination","description":"unconditional request-termination denial with Kong plugin precedence"},{"code":"global-plugin-scope","description":"global plugins with route-over-service-over-global precedence"},{"code":"root-route-service-plugin-scope","description":"root plugins scoped by string route/service references"},{"code":"top-level-route","description":"top-level routes with string service references or denying no-service behavior"},{"code":"default-admin-ports","description":"Admin API recognition on default ports 8001 and 8444"},{"code":"default-deny","description":"denying fallthrough when no route guard allows a request"}],"conservative":[{"code":"route-created-at-tie","description":"created_at is absent from decK and unresolved route order remains tied"},{"code":"route-header-regex","description":"regex header values are over-approximated and the route is left incomparable"},{"code":"wildcard-sni","description":"wildcard SNI depends on router flavor and is over-approximated"},{"code":"route-stream-match","description":"source/destination criteria are over-approximated and the route is left incomparable"},{"code":"uppercase-host","description":"uppercase route hosts are left incomparable because request hosts are lowercased"},{"code":"unrecognized-plugin","description":"unrecognized plugins provide no modeled auth or rate-limit behavior"},{"code":"invalid-ip-cidr","description":"IPv6 or malformed ip-restriction entries are dropped, weakening the guard"},{"code":"conditional-request-termination","description":"triggered request-termination depends on unmodeled query parameters"},{"code":"auth-anonymous-fallback","description":"authentication anonymous fallback is over-approximated without resolving Consumers"},{"code":"response-rate-limit-dependency","description":"response rate limiting depends on upstream usage headers outside the config"},{"code":"graphql-rate-limit-scope","description":"GraphQL query-cost limiting does not establish general HTTP request-rate coverage"}],"unsupported":[{"code":"unsupported-path-regex","description":"non-regular or untranslated regex constructs make the whole result unknown"},{"code":"consumer-scoped-plugin","description":"consumer-scoped plugins require a richer principal identity model"},{"code":"non-string-plugin-reference","description":"non-string root plugin references are not resolved"},{"code":"non-string-route-service-reference","description":"non-string top-level route service references are not resolved"}]}|}
   in
   let json = Assurance.profile_json () in
   if json <> expected_json then failwith "Kong assurance profile JSON changed";
   let expected_human =
-    {|KONG ASSURANCE PROFILE  kong-traditional-http-v9
+    {|KONG ASSURANCE PROFILE  kong-traditional-http-v10
 Connector: kong
-Profile version: 9
+Profile version: 10
 Target: Kong Gateway traditional/traditional_compatible HTTP routing
 
 Modeled:
@@ -81,7 +81,7 @@ Modeled:
   - traditional-route-priority: two-layer traditional-router priority without created_at
   - known-auth-plugins: authentication requirement from Soundcheck's known plugin list
   - auth-preflight-bypass: Key Auth and JWT OPTIONS bypass when run_on_preflight is false
-  - known-rate-limit-plugins: rate-limit coverage from Soundcheck's known plugin list
+  - general-request-rate-limit: request-rate coverage from rate-limiting and rate-limiting-advanced
   - ipv4-ip-restriction: IPv4 ip-restriction allow and deny guards over Kong's derived client IP
   - request-termination: unconditional request-termination denial with Kong plugin precedence
   - global-plugin-scope: global plugins with route-over-service-over-global precedence
@@ -100,6 +100,8 @@ Conservative:
   - invalid-ip-cidr: IPv6 or malformed ip-restriction entries are dropped, weakening the guard
   - conditional-request-termination: triggered request-termination depends on unmodeled query parameters
   - auth-anonymous-fallback: authentication anonymous fallback is over-approximated without resolving Consumers
+  - response-rate-limit-dependency: response rate limiting depends on upstream usage headers outside the config
+  - graphql-rate-limit-scope: GraphQL query-cost limiting does not establish general HTTP request-rate coverage
 
 Unsupported:
   - unsupported-path-regex: non-regular or untranslated regex constructs make the whole result unknown
@@ -120,7 +122,7 @@ Unsupported:
   in
   (match report.Soundcheck_core.Report.assurance with
    | Some assurance
-     when assurance.profile = "kong-traditional-http-v9"
+     when assurance.profile = "kong-traditional-http-v10"
           && assurance.status = Soundcheck_core.Report.Conservative -> ()
    | _ -> failwith "verification report omitted assurance assessment");
   let report_json = Soundcheck_core.Report.to_json report in
@@ -128,6 +130,6 @@ Unsupported:
      || not (contains report_json "\"code\":\"route-header-regex\"")
   then failwith "report JSON omitted assurance identity or finding";
   let human = Soundcheck_core.Report.to_human report in
-  if not (contains human "Assurance: kong-traditional-http-v9 (conservative)")
+  if not (contains human "Assurance: kong-traditional-http-v10 (conservative)")
      || not (contains human "route-header-regex")
   then failwith "human report omitted assurance assessment"

@@ -18,7 +18,7 @@ let no_anonymous_access ~path_prefix =
 let rate_limit_on_public =
   must_deny
     ~name:"rate-limit-on-public"
-    ~description:"Every anonymous-reachable route must have a rate-limiting plugin"
+    ~description:"Every anonymous-reachable route must have a general request-rate limiting plugin"
     ~reach_via:(fun (r : Ir.rule) -> not r.rate_limited)
     Ir.Is_anonymous
 

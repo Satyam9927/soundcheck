@@ -30,9 +30,9 @@ type assessment = {
 let feature code description = { code; description }
 
 let profile =
-  { id = "kong-traditional-http-v9";
+  { id = "kong-traditional-http-v10";
     connector = "kong";
-    version = 9;
+    version = 10;
     target = "Kong Gateway traditional/traditional_compatible HTTP routing";
     modeled =
       [ feature "literal-path-prefix" "literal HTTP path-prefix matching";
@@ -46,7 +46,7 @@ let profile =
         feature "traditional-route-priority" "two-layer traditional-router priority without created_at";
         feature "known-auth-plugins" "authentication requirement from Soundcheck's known plugin list";
         feature "auth-preflight-bypass" "Key Auth and JWT OPTIONS bypass when run_on_preflight is false";
-        feature "known-rate-limit-plugins" "rate-limit coverage from Soundcheck's known plugin list";
+        feature "general-request-rate-limit" "request-rate coverage from rate-limiting and rate-limiting-advanced";
         feature "ipv4-ip-restriction" "IPv4 ip-restriction allow and deny guards over Kong's derived client IP";
         feature "request-termination" "unconditional request-termination denial with Kong plugin precedence";
         feature "global-plugin-scope" "global plugins with route-over-service-over-global precedence";
@@ -63,7 +63,9 @@ let profile =
         feature "unrecognized-plugin" "unrecognized plugins provide no modeled auth or rate-limit behavior";
         feature "invalid-ip-cidr" "IPv6 or malformed ip-restriction entries are dropped, weakening the guard";
         feature "conditional-request-termination" "triggered request-termination depends on unmodeled query parameters";
-        feature "auth-anonymous-fallback" "authentication anonymous fallback is over-approximated without resolving Consumers" ];
+        feature "auth-anonymous-fallback" "authentication anonymous fallback is over-approximated without resolving Consumers";
+        feature "response-rate-limit-dependency" "response rate limiting depends on upstream usage headers outside the config";
+        feature "graphql-rate-limit-scope" "GraphQL query-cost limiting does not establish general HTTP request-rate coverage" ];
     unsupported =
       [ feature "unsupported-path-regex" "non-regular or untranslated regex constructs make the whole result unknown";
         feature "consumer-scoped-plugin" "consumer-scoped plugins require a richer principal identity model";
@@ -122,7 +124,18 @@ let plugin_findings ?service ?route plugins =
                  plugin.name) ]
         else []
       in
-      unknown @ invalid_cidrs @ conditional_termination @ anonymous_fallback)
+      let specialized_rate_limit =
+        match plugin.name with
+        | "response-ratelimiting" ->
+          [ finding ?service ?route "response-rate-limit-dependency"
+              "response-ratelimiting consumes quota only from upstream usage headers" ]
+        | "graphql-rate-limiting-advanced" ->
+          [ finding ?service ?route "graphql-rate-limit-scope"
+              "graphql-rate-limiting-advanced covers GraphQL query cost, not general HTTP request rate" ]
+        | _ -> []
+      in
+      unknown @ invalid_cidrs @ conditional_termination @ anonymous_fallback
+      @ specialized_rate_limit)
     plugins
 
 let route_findings ?service (route : Ast.route) =
