@@ -83,7 +83,7 @@ Requires OCaml 5.x, dune, the `yaml` opam library, and the **`z3` CLI binary** o
 brew install z3                 # or: apt install z3
 opam install dune yaml
 dune build
-dune test                       # runs the 46-case corpus regression gate
+dune test                       # runs the 48-case corpus regression gate
 ```
 
 Verify a config:
@@ -196,7 +196,7 @@ identically by CI, the MCP tool, and eventually the repair loop.
   "schema_version": 9,
   "property": "no-anonymous-access",
   "assurance": {
-    "profile": "kong-traditional-http-v8",
+    "profile": "kong-traditional-http-v9",
     "status": "within_profile",
     "findings": []
   },
@@ -405,6 +405,10 @@ This is an early project and the boundaries are worth stating plainly.
   is not counted, so a route it protects is treated as open and reported as violated. That
   errs toward a false alarm rather than a false clean bill, which is the direction this
   tool should fail in, but it does mean unusual setups need the list extended.
+- **Authentication bypass settings are not mistaken for enforcement.** A configured
+  anonymous Consumer leaves failed authentication reachable, while Key Auth and JWT
+  with `run_on_preflight: false` allow anonymous `OPTIONS` requests. Anonymous Consumer
+  references are conservatively treated as valid because their identities are not yet resolved.
 - **Global plugins and plugin precedence are modelled.** A relationship-free root
   `plugins:` entry applies globally. Kong selects the most specific enabled configuration
   for a plugin name in route+service → route → service → global order. Root plugins may
@@ -421,7 +425,7 @@ This is an early project and the boundaries are worth stating plainly.
 
 ## Testing
 
-`bench/kong/cases/` holds 46 labeled cases, each a config plus a golden `expected.json`
+`bench/kong/cases/` holds 48 labeled cases, each a config plus a golden `expected.json`
 produced by the engine and hand-checked against intent. They span the real
 misconfiguration shapes: a missing plugin, service versus route-level auth inheritance, an
 open sibling route, a method-specific gap (`GET` guarded, `POST` open), a leak in a second
