@@ -1,0 +1,48 @@
+_format_version: "3.0"
+_transform: true
+
+services:
+  - name: probe-upstream
+    # Keep the differential test self-contained: Kong proxies to its own Admin
+    # API status endpoint rather than requiring another container or the network.
+    url: http://127.0.0.1:8001/status
+    routes:
+      - name: literal-short
+        paths: [/literal]
+      - name: literal-long
+        paths: [/literal/deep]
+
+      - name: items-prefix
+        paths: [/items]
+      - name: items-regex
+        paths: ['~/items/[0-9]+$']
+
+      - name: method-fallback
+        paths: [/method]
+      - name: method-get
+        paths: [/method]
+        methods: [GET]
+
+      - name: host-fallback
+        paths: [/host]
+      - name: host-exact
+        paths: [/host]
+        hosts: [api.example]
+
+      - name: header-fallback
+        paths: [/header]
+      - name: header-region
+        paths: [/header]
+        headers:
+          x-region: [us]
+
+      - name: priority-low
+        paths: ['~/priority/.*']
+        regex_priority: 1
+      - name: priority-high
+        paths: ['~/priority/special']
+        regex_priority: 10
+
+routes:
+  - name: service-less
+    paths: [/service-less]

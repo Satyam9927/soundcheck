@@ -481,6 +481,10 @@ Connectors depend on core. **Core never depends on connectors.**
 The immediate focus is Kong-first depth: demonstrate the frozen MCP workflow end to end,
 publish a versioned assurance profile, expand the paired contract catalogue, improve
 semantic coverage, and differentially validate the model against real Kong behavior.
+
+Real-gateway differential conformance is available as an opt-in Docker check. It
+compares Soundcheck's concrete routing decision with pinned Kong OSS 3.9.3 under
+both supported router flavors; see [`bench/kong/conformance/`](bench/kong/conformance/).
 Configuration equivalence, CI/PR productization, and reproducible evidence follow.
 
 Soundcheck remains a model-independent verifier. External agents and optional downstream
