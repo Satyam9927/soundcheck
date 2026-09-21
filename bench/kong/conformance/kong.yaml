@@ -43,6 +43,15 @@ services:
         paths: ['~/priority/special']
         regex_priority: 10
 
+      - name: sni-exact
+        paths: [/sni]
+        protocols: [https]
+        snis: [api.example]
+
+      - name: https-only
+        paths: [/https-only]
+        protocols: [https]
+
 routes:
   - name: service-less
     paths: [/service-less]

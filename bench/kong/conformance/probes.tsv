@@ -1,14 +1,19 @@
-# name|method|path|host|header (use - when absent)
-literal-long|GET|/literal/deep/item|-|-
-literal-short|GET|/literal/other|-|-
-regex-over-prefix|GET|/items/42|-|-
-prefix-fallback|GET|/items/not-a-number|-|-
-method-category|GET|/method|-|-
-method-fallback|POST|/method|-|-
-host-category|GET|/host|api.example|-
-host-fallback|GET|/host|other.example|-
-header-category|GET|/header|-|x-region:us
-header-fallback|GET|/header|-|x-region:eu
-regex-priority|GET|/priority/special|-|-
-service-less|GET|/service-less|-|-
-default-deny|GET|/not-configured|-|-
+# name|scheme|method|path|host|sni|header (use - when absent)
+literal-long|http|GET|/literal/deep/item|-|-|-
+literal-short|http|GET|/literal/other|-|-|-
+regex-over-prefix|http|GET|/items/42|-|-|-
+prefix-fallback|http|GET|/items/not-a-number|-|-|-
+method-category|http|GET|/method|-|-|-
+method-fallback|http|POST|/method|-|-|-
+host-category|http|GET|/host|api.example|-|-
+host-fallback|http|GET|/host|other.example|-|-
+header-category|http|GET|/header|-|-|x-region:us
+header-fallback|http|GET|/header|-|-|x-region:eu
+regex-priority|http|GET|/priority/special|-|-|-
+service-less|http|GET|/service-less|-|-|-
+default-deny|http|GET|/not-configured|-|-|-
+sni-exact|https|GET|/sni|api.example|api.example|-
+sni-mismatch|https|GET|/sni|api.example|other.example|-
+sni-http-bypass|http|GET|/sni|api.example|-|-
+https-only|https|GET|/https-only|-|-|-
+https-only-http-deny|http|GET|/https-only|-|-|-
