@@ -54,10 +54,34 @@ let effective_plugin (config : Ast.config) name (service : Ast.service)
               | Some plugin -> Some plugin
               | None -> find config.global_plugins))))
 
-let requires_auth config (service : Ast.service) (route : Ast.route) : bool =
+let supports_preflight_bypass = function
+  | "key-auth" | "jwt" -> true
+  | _ -> false
+
+let requires_auth config (service : Ast.service) (route : Ast.route) =
   List.exists
-    (fun name -> Option.is_some (effective_plugin config name service route))
+    (fun name ->
+      match effective_plugin config name service route with
+      | Some plugin ->
+        not plugin.anonymous_fallback
+        && (plugin.run_on_preflight || not (supports_preflight_bypass name))
+      | None -> false)
     auth_plugins
+
+let auth_condition config (service : Ast.service) (route : Ast.route) =
+  let conditions =
+    List.filter_map
+      (fun name ->
+        match effective_plugin config name service route with
+        | None -> None
+        | Some plugin when plugin.anonymous_fallback -> None
+        | Some plugin
+          when supports_preflight_bypass name && not plugin.run_on_preflight ->
+          Some (Ir.Or [ Ir.Requires_auth; Ir.Method_is "OPTIONS" ])
+        | Some _ -> Some Ir.Requires_auth)
+      auth_plugins
+  in
+  match conditions with [] -> Ir.True | [ condition ] -> condition | _ -> Ir.And conditions
 
 (* Kong rate-limiting / throttling plugins. *)
 let rate_limit_plugins =
@@ -272,9 +296,7 @@ let ip_restriction_condition config (service : Ast.service) (route : Ast.route) 
   match conds with [] -> Ir.True | cs -> Ir.And cs
 
 let guard_condition config (service : Ast.service) (route : Ast.route) : Ir.condition =
-  let auth =
-    if requires_auth config service route then Ir.Requires_auth else Ir.True
-  in
+  let auth = auth_condition config service route in
   let protocol =
     if List.mem "https" route.protocols && not (List.mem "http" route.protocols)
     then Ir.Scheme_is "https"

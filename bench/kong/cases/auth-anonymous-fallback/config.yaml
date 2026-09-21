@@ -1,0 +1,13 @@
+# An authentication plugin with an anonymous Consumer fallback proxies failed
+# authentication instead of rejecting it. Presence of the plugin alone is not
+# proof that anonymous requests are denied.
+services:
+  - name: api
+    url: http://upstream:8000
+    routes:
+      - name: admin
+        paths: [/admin]
+        plugins:
+          - name: key-auth
+            config:
+              anonymous: anonymous-consumer

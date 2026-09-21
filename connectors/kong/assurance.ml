@@ -30,9 +30,9 @@ type assessment = {
 let feature code description = { code; description }
 
 let profile =
-  { id = "kong-traditional-http-v8";
+  { id = "kong-traditional-http-v9";
     connector = "kong";
-    version = 8;
+    version = 9;
     target = "Kong Gateway traditional/traditional_compatible HTTP routing";
     modeled =
       [ feature "literal-path-prefix" "literal HTTP path-prefix matching";
@@ -45,6 +45,7 @@ let profile =
         feature "exact-sni" "exact SNI matching for HTTPS and Kong's HTTP bypass";
         feature "traditional-route-priority" "two-layer traditional-router priority without created_at";
         feature "known-auth-plugins" "authentication requirement from Soundcheck's known plugin list";
+        feature "auth-preflight-bypass" "Key Auth and JWT OPTIONS bypass when run_on_preflight is false";
         feature "known-rate-limit-plugins" "rate-limit coverage from Soundcheck's known plugin list";
         feature "ipv4-ip-restriction" "IPv4 ip-restriction allow and deny guards over Kong's derived client IP";
         feature "request-termination" "unconditional request-termination denial with Kong plugin precedence";
@@ -61,7 +62,8 @@ let profile =
         feature "uppercase-host" "uppercase route hosts are left incomparable because request hosts are lowercased";
         feature "unrecognized-plugin" "unrecognized plugins provide no modeled auth or rate-limit behavior";
         feature "invalid-ip-cidr" "IPv6 or malformed ip-restriction entries are dropped, weakening the guard";
-        feature "conditional-request-termination" "triggered request-termination depends on unmodeled query parameters" ];
+        feature "conditional-request-termination" "triggered request-termination depends on unmodeled query parameters";
+        feature "auth-anonymous-fallback" "authentication anonymous fallback is over-approximated without resolving Consumers" ];
     unsupported =
       [ feature "unsupported-path-regex" "non-regular or untranslated regex constructs make the whole result unknown";
         feature "consumer-scoped-plugin" "consumer-scoped plugins require a richer principal identity model";
@@ -112,7 +114,15 @@ let plugin_findings ?service ?route plugins =
                  trigger) ]
         | _ -> []
       in
-      unknown @ invalid_cidrs @ conditional_termination)
+      let anonymous_fallback =
+        if Lower.is_auth_plugin plugin.name && plugin.anonymous_fallback then
+          [ finding ?service ?route "auth-anonymous-fallback"
+              (Printf.sprintf
+                 "plugin %S forwards failed authentication as its configured anonymous Consumer"
+                 plugin.name) ]
+        else []
+      in
+      unknown @ invalid_cidrs @ conditional_termination @ anonymous_fallback)
     plugins
 
 let route_findings ?service (route : Ast.route) =

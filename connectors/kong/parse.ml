@@ -22,6 +22,9 @@ let headers_of (v : Yaml.value option) : (string * string list) list =
 let enabled_of (v : Yaml.value) : bool =
   match member "enabled" v with Some (`Bool b) -> b | _ -> true
 
+let bool_in key value ~default =
+  match member key value with Some (`Bool boolean) -> boolean | _ -> default
+
 let plugin_of x =
   match member "name" x with
   | Some (`String name) ->
@@ -35,7 +38,18 @@ let plugin_of x =
          trigger =
            (match cfg with
             | Some value -> Option.bind (member "trigger" value) to_string
-            | None -> None) }
+            | None -> None);
+         anonymous_fallback =
+           (match cfg with
+            | Some value ->
+              (match member "anonymous" value with
+               | None | Some `Null -> false
+               | Some _ -> true)
+            | None -> false);
+         run_on_preflight =
+           (match cfg with
+            | Some value -> bool_in "run_on_preflight" value ~default:true
+            | None -> true) }
         : Ast.plugin)
   | _ -> None
 
