@@ -485,7 +485,16 @@ semantic coverage, and differentially validate the model against real Kong behav
 Real-gateway differential conformance is available as an opt-in Docker check. It
 compares Soundcheck's concrete routing decision with pinned Kong OSS 3.9.3 under
 both supported router flavors; see [`bench/kong/conformance/`](bench/kong/conformance/).
-Configuration equivalence, CI/PR productization, and reproducible evidence follow.
+Security-decision equivalence compares two Kong configs over every modeled request
+and returns either equivalence, a concrete distinguishing request, or unknown when
+the model cannot support an exact comparison:
+
+```sh
+soundcheck compare before.yaml after.yaml --format json
+```
+
+Scoped repair preservation and full routing/upstream equivalence follow, along
+with CI/PR productization and reproducible evidence.
 
 Soundcheck remains a model-independent verifier. External agents and optional downstream
 orchestrators may generate or repair configurations through its interfaces, but model

@@ -51,3 +51,9 @@ val shadowing_query : Ir.policy -> Shadowing.pair -> string
     serves and permits a request the shadowed rule was written to handle and
     would have denied. Shares the winner-takes-all selection encoding with
     {!to_smtlib}, so both agree on which rule serves a request. *)
+
+val decision_equivalence_query : Ir.policy -> Ir.policy -> string
+(** Ask for a request on which two policies make different Allow/Deny decisions.
+    Unsatisfiable means decision-equivalent over the union of their request
+    domains. Connectors must separately establish that each lowered policy is
+    exact enough for an equivalence proof. *)
