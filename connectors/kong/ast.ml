@@ -48,7 +48,11 @@ type route = {
 
 type service = {
   name    : string;
-  url     : string;        (* upstream the service proxies to *)
+  url     : string option; (* Kong shorthand for the upstream target *)
+  protocol : string option;
+  host     : string option;
+  port     : int option;
+  path     : string option;
   routes  : route list;
   plugins : plugin list;   (* service-level plugins (apply to all its routes) *)
 }
