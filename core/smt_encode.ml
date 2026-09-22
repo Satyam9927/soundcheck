@@ -265,10 +265,11 @@ let shadowing_query (p : Ir.policy) (pair : Shadowing.pair) : string =
   Buffer.add_string b (Printf.sprintf "(assert (not %s))\n" (cond k.Ir.guard));
   epilogue b headers
 
-let decision_equivalence_query (left : Ir.policy) (right : Ir.policy) : string =
+let decision_equivalence_query ?(when_ = Ir.True) (left : Ir.policy)
+    (right : Ir.policy) : string =
   let b = Buffer.create 768 in
   let headers =
-    unique_headers (policy_conditions left @ policy_conditions right)
+    unique_headers (when_ :: policy_conditions left @ policy_conditions right)
   in
   preamble b "; decision equivalence: find a request where policies disagree\n"
     headers;
@@ -284,6 +285,8 @@ let decision_equivalence_query (left : Ir.policy) (right : Ir.policy) : string =
   Buffer.add_string b
     (Printf.sprintf "(assert (or %s %s))\n"
        (cond left.request_domain) (cond right.request_domain));
+  Buffer.add_string b "; the request is inside the comparison scope:\n";
+  Buffer.add_string b (Printf.sprintf "(assert %s)\n" (cond when_));
   Buffer.add_string b "; the policy decisions differ:\n";
   Buffer.add_string b
     (Printf.sprintf "(assert (xor %s %s))\n" left_allows right_allows);

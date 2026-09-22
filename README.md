@@ -493,8 +493,19 @@ the model cannot support an exact comparison:
 soundcheck compare before.yaml after.yaml --format json
 ```
 
-Scoped repair preservation and full routing/upstream equivalence follow, along
-with CI/PR productization and reproducible evidence.
+Bind comparison to the same immutable contract used by a repair loop to prove
+both that the replacement satisfies the intent and that decisions outside its
+path/method/host scope did not change:
+
+```sh
+soundcheck compare before.yaml after.yaml --contract contract.yaml --format json
+```
+
+With `--contract`, `--emit-smt` writes the outside-scope preservation query; the
+multi-query contract result remains embedded in the comparison report.
+
+Full routing/upstream equivalence follows, along with CI/PR productization and
+reproducible evidence.
 
 Soundcheck remains a model-independent verifier. External agents and optional downstream
 orchestrators may generate or repair configurations through its interfaces, but model

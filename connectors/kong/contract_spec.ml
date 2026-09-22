@@ -169,6 +169,19 @@ let to_property spec =
         host = spec.host;
         trusted_cidr }
 
+let scope_condition spec =
+  Soundcheck_core.Ir.And
+    ([ Soundcheck_core.Ir.Path_prefix spec.path_prefix ]
+     @ Option.to_list
+         (Option.map (fun method_ -> Soundcheck_core.Ir.Method_is method_)
+            spec.method_)
+     @ Option.to_list
+         (Option.map
+            (fun host ->
+              Soundcheck_core.Ir.Host_matches
+                (Soundcheck_core.Regex.Lit (String.lowercase_ascii host)))
+            spec.host))
+
 let escape_json value =
   let buffer = Buffer.create (String.length value) in
   String.iter

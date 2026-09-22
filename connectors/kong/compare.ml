@@ -95,7 +95,8 @@ let observe config (policy : Ir.policy) model =
     route;
     service = Option.bind route (Lift.service_of_route config) }
 
-let run ?(z3 = "z3") ?emit_smt before_source after_source =
+let run_comparison ?(z3 = "z3") ?emit_smt ?(when_ = Ir.True) before_source
+    after_source =
   match parse "before" before_source, parse "after" after_source with
   | Error error, _ | _, Error error -> Error error
   | Ok before_config, Ok after_config ->
@@ -120,7 +121,7 @@ let run ?(z3 = "z3") ?emit_smt before_source after_source =
          | Error reason -> Ok { result = Unknown reason; profile }
          | Ok () ->
          let query =
-           Smt_encode.decision_equivalence_query before_policy after_policy
+           Smt_encode.decision_equivalence_query ~when_ before_policy after_policy
          in
          match Solve.check ~z3 ?emit_smt query with
          | Solve.Proved -> Ok { result = Equivalent; profile }
@@ -133,6 +134,9 @@ let run ?(z3 = "z3") ?emit_smt before_source after_source =
                      before = observe before_config before_policy request;
                      after = observe after_config after_policy request };
                profile })
+
+let run ?z3 ?emit_smt before_source after_source =
+  run_comparison ?z3 ?emit_smt before_source after_source
 
 let escape value =
   let buffer = Buffer.create (String.length value) in
@@ -209,3 +213,94 @@ let to_human report =
       (if request.method_ = "" then "<any-method>" else request.method_)
       request.path (observation_human "before" witness.before)
       (observation_human "after" witness.after) report.profile
+
+type repair_outcome =
+  | Valid_repair
+  | Contract_failed
+  | Out_of_scope_regression of witness
+  | Repair_unknown of string
+
+type repair_report = {
+  result          : repair_outcome;
+  profile         : string;
+  contract_report : Report.t;
+  frozen_spec     : Contract_spec.t;
+}
+
+let run_repair ?z3 ?emit_smt ~contract before_source after_source =
+  match parse "before" before_source, parse "after" after_source with
+  | Error error, _ | _, Error error -> Error error
+  | Ok _, Ok _ ->
+  match Verify.run ~property:(Contract_spec.to_property contract) after_source with
+  | Error error -> Error error
+  | Ok raw_contract_report ->
+    let contract_report = Contract_spec.bind_report contract raw_contract_report in
+    let profile = Assurance.profile.id in
+    (match contract_report.result with
+     | Report.Proved ->
+       let outside = Ir.Not (Contract_spec.scope_condition contract) in
+       (match
+          run_comparison ?z3 ?emit_smt ~when_:outside before_source after_source
+        with
+        | Error error -> Error error
+        | Ok comparison ->
+          let result =
+            match comparison.result with
+            | Equivalent -> Valid_repair
+            | Different witness -> Out_of_scope_regression witness
+            | Unknown reason -> Repair_unknown reason
+          in
+          Ok { result; profile; contract_report; frozen_spec = contract })
+     | Report.Unknown reason ->
+       Ok
+         { result = Repair_unknown reason;
+           profile;
+           contract_report;
+           frozen_spec = contract }
+     | Report.Vacuous | Report.Inconsistent _ | Report.Violated _ ->
+       Ok
+         { result = Contract_failed;
+           profile;
+           contract_report;
+           frozen_spec = contract })
+
+let repair_to_json report =
+  let head result =
+    Printf.sprintf
+      "\"result\":%s,\"schema_version\":1,\"comparison\":\"frozen_scope_preservation\",\"assurance_profile\":%s,\"frozen_spec\":%s,\"contract_result\":%s"
+      (jstring result) (jstring report.profile)
+      (Contract_spec.canonical_json report.frozen_spec)
+      (Report.to_json report.contract_report)
+  in
+  match report.result with
+  | Valid_repair ->
+    Printf.sprintf "{%s,\"witness\":null}" (head "valid_repair")
+  | Contract_failed ->
+    Printf.sprintf "{%s,\"witness\":null}" (head "contract_failed")
+  | Out_of_scope_regression witness ->
+    Printf.sprintf "{%s,\"witness\":%s}" (head "out_of_scope_regression")
+      (witness_json witness)
+  | Repair_unknown reason ->
+    Printf.sprintf "{%s,\"witness\":null,\"reason\":%s}" (head "unknown")
+      (jstring reason)
+
+let repair_to_human report =
+  match report.result with
+  | Valid_repair ->
+    Printf.sprintf
+      "VALID REPAIR  replacement satisfies %s and preserves every security decision outside its frozen scope\n              Assurance: %s\n              Frozen spec: %s"
+      report.contract_report.property_name report.profile
+      (Contract_spec.canonical_json report.frozen_spec)
+  | Contract_failed ->
+    "INVALID REPAIR  replacement does not satisfy the frozen contract\n"
+    ^ Report.to_human report.contract_report
+  | Repair_unknown reason -> Printf.sprintf "UNKNOWN  %s" reason
+  | Out_of_scope_regression witness ->
+    let request = witness.request in
+    Printf.sprintf
+      "OUT-OF-SCOPE REGRESSION  %s request %s %s changed outside the frozen repair scope\n                         %s\n                         %s\n                         Frozen spec: %s"
+      (if request.is_anon then "anonymous" else "authenticated")
+      (if request.method_ = "" then "<any-method>" else request.method_)
+      request.path (observation_human "before" witness.before)
+      (observation_human "after" witness.after)
+      (Contract_spec.canonical_json report.frozen_spec)

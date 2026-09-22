@@ -36,6 +36,11 @@ val read_file : string -> (t, string) result
 val to_property : t -> Verify.property
 (** Convert the confirmed artifact to the immutable verifier input. *)
 
+val scope_condition : t -> Soundcheck_core.Ir.condition
+(** The outer endpoint scope controlled by the human-confirmed artifact: path
+    prefix plus optional method and host. Principal, source-IP, and other clause
+    constraints deliberately do not narrow the repair boundary. *)
+
 val canonical_json : t -> string
 (** Stable, normalized identity material for report provenance. Host names are
     lowercased because Kong matches them case-insensitively. *)

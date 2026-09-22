@@ -24,8 +24,11 @@ let usage () =
     \  --emit-smt     write a single-property SMT-LIB2 query to PATH (not contracts)\n\
      \n\
      usage: soundcheck compare <before.yaml> <after.yaml>\n\
+    \                           [--contract CONTRACT.yaml]\n\
     \                           [--format human|json] [--emit-smt PATH]\n\
-    \  Compare Allow/Deny decisions for every modeled request.\n\
+    \  Without --contract, compare every modeled Allow/Deny decision.\n\
+    \  With --contract, verify the replacement and preserve decisions outside\n\
+    \  the frozen contract scope.\n\
      \n\
      usage: soundcheck profile kong [--format human|json]\n\
     \  Print the versioned Kong assurance profile and exit.\n\
@@ -212,11 +215,51 @@ let run_mcp rest =
 let run_compare before_file after_file rest =
   let format = parse_format rest in
   let emit_smt = parse_emit_smt rest in
+  let contract =
+    match parse_contract_path rest with
+    | None -> None
+    | Some path ->
+      let conflicting =
+        [ "--property"; "--path-prefix"; "--method"; "--host";
+          "--trusted-cidr" ]
+        |> List.find_opt (fun flag -> has_flag flag rest)
+      in
+      (match conflicting with
+       | Some flag ->
+         Printf.eprintf "%s cannot be combined with --contract\n" flag;
+         exit 2
+       | None -> ());
+      (match Contract_spec.read_file path with
+       | Ok contract -> Some contract
+       | Error error ->
+         Printf.eprintf "contract error: %s\n" error;
+         exit 2)
+  in
   match Parse.read_file before_file, Parse.read_file after_file with
   | Error error, _ | _, Error error ->
     Printf.eprintf "parse error: %s\n" error;
     exit 1
   | Ok before_source, Ok after_source ->
+    (match contract with
+     | Some contract ->
+       (match
+          Compare.run_repair ?emit_smt ~contract before_source after_source
+        with
+        | Error error ->
+          Printf.eprintf "comparison error: %s\n" error;
+          exit 1
+        | Ok report ->
+          print_endline
+            (match format with
+             | Human -> Compare.repair_to_human report
+             | Json -> Compare.repair_to_json report);
+          exit
+            (match report.result with
+             | Compare.Valid_repair -> 0
+             | Compare.Out_of_scope_regression _ -> 3
+             | Compare.Repair_unknown _ -> 4
+             | Compare.Contract_failed -> exit_code report.contract_report.result))
+     | None ->
     (match Compare.run ?emit_smt before_source after_source with
      | Error error ->
        Printf.eprintf "comparison error: %s\n" error;
@@ -228,7 +271,7 @@ let run_compare before_file after_file rest =
          (match report.result with
           | Compare.Equivalent -> 0
           | Compare.Different _ -> 3
-          | Compare.Unknown _ -> 4))
+          | Compare.Unknown _ -> 4)))
 
 let run_profile connector rest =
   let format =
