@@ -10,6 +10,11 @@ let run before after =
   | Ok report -> report
   | Error error -> failwith error
 
+let run_mode mode before after =
+  match Compare.run ~mode before after with
+  | Ok report -> report
+  | Error error -> failwith error
+
 let contract source =
   match Contract_spec.parse_string source with
   | Ok contract -> contract
@@ -17,6 +22,11 @@ let contract source =
 
 let run_repair contract before after =
   match Compare.run_repair ~contract before after with
+  | Ok report -> report
+  | Error error -> failwith error
+
+let run_repair_mode mode contract before after =
+  match Compare.run_repair ~mode ~contract before after with
   | Ok report -> report
   | Error error -> failwith error
 
@@ -72,6 +82,59 @@ let () =
   if json <> expected then failwith ("unexpected equivalence JSON: " ^ json)
 
 let () =
+  let before = config "admin" in
+  let renamed = config "admin-v2" in
+  (match (run before renamed).result with
+   | Compare.Equivalent -> ()
+   | _ -> failwith "route renaming must not change decision equivalence");
+  (match (run_mode Compare.Route_service before renamed).result with
+   | Compare.Different witness
+     when witness.before.route = Some "admin"
+          && witness.after.route = Some "admin-v2" -> ()
+   | _ -> failwith "route/service mode must detect a selected-route rename");
+
+  let moved =
+    "services: [{name: other-api, routes: [{name: admin, paths: [/admin]}]}]"
+  in
+  (match (run_mode Compare.Route_service before moved).result with
+   | Compare.Different witness
+     when witness.before.service = Some "api"
+          && witness.after.service = Some "other-api" -> ()
+   | _ -> failwith "route/service mode must detect a selected-service change");
+
+  let unnamed = "services: [{name: api, routes: [{paths: [/admin]}]}]" in
+  (match (run_mode Compare.Route_service unnamed before).result with
+   | Compare.Unknown reason
+     when String.starts_with ~prefix:"before config contains a route without" reason -> ()
+   | _ -> failwith "unnamed routes must prevent exact routing identity");
+
+  let unnamed_service = "services: [{routes: [{name: admin, paths: [/admin]}]}]" in
+  (match (run_mode Compare.Route_service unnamed_service before).result with
+   | Compare.Unknown reason
+     when String.starts_with ~prefix:"before config contains a routed service without" reason -> ()
+   | _ -> failwith "unnamed services must prevent exact routing identity");
+
+  let harmless_decision_tie =
+    {|services:
+  - name: api
+    routes:
+    - name: first
+      paths: [/admin]
+    - name: second
+      paths: [/admin]
+|}
+  in
+  (match (run harmless_decision_tie harmless_decision_tie).result with
+   | Compare.Equivalent -> ()
+   | _ -> failwith "identical-effect ties may prove decision equivalence");
+  (match
+     (run_mode Compare.Route_service harmless_decision_tie harmless_decision_tie).result
+   with
+   | Compare.Unknown reason
+     when String.starts_with ~prefix:"before config has overlapping routes" reason -> ()
+   | _ -> failwith "distinct tied routes must prevent routing equivalence")
+
+let () =
   let frozen =
     contract
       {|schema_version: 1
@@ -116,6 +179,49 @@ scope:
            {|{"result":"valid_repair","schema_version":1,"comparison":"frozen_scope_preservation"|}
          valid_json)
   then failwith ("unexpected scoped-repair JSON: " ^ valid_json);
+
+  let routing_repaired =
+    {|services:
+  - name: api
+    routes:
+    - name: admin-get
+      paths: [/admin]
+      methods: [GET]
+      plugins: [{name: key-auth}]
+    - name: admin
+      paths: [/admin]
+    - name: public
+      paths: [/public]
+|}
+  in
+  (match
+     (run_repair_mode Compare.Route_service frozen before routing_repaired).result
+   with
+   | Compare.Valid_repair -> ()
+   | _ ->
+     failwith
+       "route/service preservation must ignore routing changes inside frozen scope");
+
+  let routing_regressed =
+    {|services:
+  - name: api
+    routes:
+    - name: admin-get
+      paths: [/admin]
+      methods: [GET]
+      plugins: [{name: key-auth}]
+    - name: admin
+      paths: [/admin]
+    - name: public-v2
+      paths: [/public]
+|}
+  in
+  (match
+     (run_repair_mode Compare.Route_service frozen before routing_regressed).result
+   with
+   | Compare.Out_of_scope_regression witness
+     when String.starts_with ~prefix:"/public" witness.request.path -> ()
+   | _ -> failwith "out-of-scope route renaming must be a routing regression");
 
   let regressed =
     {|services:

@@ -25,6 +25,7 @@ let usage () =
      \n\
      usage: soundcheck compare <before.yaml> <after.yaml>\n\
     \                           [--contract CONTRACT.yaml]\n\
+    \                           [--mode decision|route-service]\n\
     \                           [--format human|json] [--emit-smt PATH]\n\
     \  Without --contract, compare every modeled Allow/Deny decision.\n\
     \  With --contract, verify the replacement and preserve decisions outside\n\
@@ -215,6 +216,22 @@ let run_mcp rest =
 let run_compare before_file after_file rest =
   let format = parse_format rest in
   let emit_smt = parse_emit_smt rest in
+  let mode =
+    let rec find = function
+      | "--mode" :: "decision" :: _ -> Compare.Security_decision
+      | "--mode" :: "route-service" :: _ -> Compare.Route_service
+      | "--mode" :: value :: _ ->
+        Printf.eprintf
+          "unknown --mode %S (expected decision|route-service)\n" value;
+        exit 2
+      | [ "--mode" ] ->
+        prerr_endline "--mode requires decision or route-service";
+        exit 2
+      | _ :: tail -> find tail
+      | [] -> Compare.Security_decision
+    in
+    find rest
+  in
   let contract =
     match parse_contract_path rest with
     | None -> None
@@ -243,7 +260,7 @@ let run_compare before_file after_file rest =
     (match contract with
      | Some contract ->
        (match
-          Compare.run_repair ?emit_smt ~contract before_source after_source
+          Compare.run_repair ?emit_smt ~mode ~contract before_source after_source
         with
         | Error error ->
           Printf.eprintf "comparison error: %s\n" error;
@@ -260,7 +277,7 @@ let run_compare before_file after_file rest =
              | Compare.Repair_unknown _ -> 4
              | Compare.Contract_failed -> exit_code report.contract_report.result))
      | None ->
-    (match Compare.run ?emit_smt before_source after_source with
+    (match Compare.run ?emit_smt ~mode before_source after_source with
      | Error error ->
        Printf.eprintf "comparison error: %s\n" error;
        exit 1

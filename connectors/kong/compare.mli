@@ -1,4 +1,7 @@
-(** Exact Allow/Deny comparison for two Kong declarative configurations. *)
+(** Exact decision and optional route/service comparison for two Kong
+    declarative configurations. *)
+
+type mode = Security_decision | Route_service
 
 type observation = {
   decision : Soundcheck_core.Ir.decision;
@@ -17,13 +20,21 @@ type outcome = Equivalent | Different of witness | Unknown of string
 type report = {
   result  : outcome;
   profile : string;
+  mode    : mode;
 }
 
 val run :
-  ?z3:string -> ?emit_smt:string -> string -> string -> (report, string) result
+  ?z3:string ->
+  ?emit_smt:string ->
+  ?mode:mode ->
+  string ->
+  string ->
+  (report, string) result
 (** [run before after] parses, validates, and lowers both configs. Equivalence is
     attempted only when both are within the assurance profile, every route match
-    is complete, and unresolved overlapping winners cannot affect the decision. *)
+    is complete, and unresolved overlapping winners cannot affect the selected
+    comparison mode. Route/service mode additionally requires stable explicit
+    route and service identity. *)
 
 val to_human : report -> string
 val to_json : report -> string
@@ -39,11 +50,13 @@ type repair_report = {
   profile         : string;
   contract_report : Soundcheck_core.Report.t;
   frozen_spec     : Contract_spec.t;
+  mode            : mode;
 }
 
 val run_repair :
   ?z3:string ->
   ?emit_smt:string ->
+  ?mode:mode ->
   contract:Contract_spec.t ->
   string ->
   string ->
