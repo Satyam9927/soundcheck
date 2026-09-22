@@ -291,3 +291,53 @@ let decision_equivalence_query ?(when_ = Ir.True) (left : Ir.policy)
   Buffer.add_string b
     (Printf.sprintf "(assert (xor %s %s))\n" left_allows right_allows);
   epilogue b headers
+
+let route_equivalence_query ?(when_ = Ir.True) ~left_label ~right_label
+    (left : Ir.policy) (right : Ir.policy) : string =
+  let b = Buffer.create 1024 in
+  let headers =
+    unique_headers (when_ :: policy_conditions left @ policy_conditions right)
+  in
+  preamble b
+    "; route/service equivalence: find a request where decision or selection differs\n"
+    headers;
+  let allows policy =
+    Printf.sprintf "(and %s %s)" (cond policy.Ir.request_domain)
+      (allowed_formula ~reach_via:(fun _ -> true) policy)
+  in
+  let labels =
+    List.map left_label left.rules @ List.map right_label right.rules
+    |> List.sort_uniq String.compare
+  in
+  let selected_label policy label_of label =
+    let rules =
+      List.filter (fun rule -> label_of rule = label) policy.Ir.rules
+    in
+    let selection =
+      match rules with
+      | [] -> "false"
+      | _ ->
+        Printf.sprintf "(or %s)"
+          (String.concat " " (List.map (selected policy.rules) rules))
+    in
+    Printf.sprintf "(and %s %s)" (cond policy.request_domain) selection
+  in
+  let differences =
+    Printf.sprintf "(xor %s %s)" (allows left) (allows right)
+    :: List.map
+         (fun label ->
+           Printf.sprintf "(xor %s %s)"
+             (selected_label left left_label label)
+             (selected_label right right_label label))
+         labels
+  in
+  Buffer.add_string b "; at least one connector admits the request:\n";
+  Buffer.add_string b
+    (Printf.sprintf "(assert (or %s %s))\n"
+       (cond left.request_domain) (cond right.request_domain));
+  Buffer.add_string b "; the request is inside the comparison scope:\n";
+  Buffer.add_string b (Printf.sprintf "(assert %s)\n" (cond when_));
+  Buffer.add_string b "; the decision or selected route/service differs:\n";
+  Buffer.add_string b
+    (Printf.sprintf "(assert (or %s))\n" (String.concat " " differences));
+  epilogue b headers

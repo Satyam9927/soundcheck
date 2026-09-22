@@ -59,3 +59,14 @@ val decision_equivalence_query :
     domains and within [when_] (default: every request). Connectors must
     separately establish that each lowered policy is exact enough for an
     equivalence proof. *)
+
+val route_equivalence_query :
+  ?when_:Ir.condition ->
+  left_label:(Ir.rule -> string) ->
+  right_label:(Ir.rule -> string) ->
+  Ir.policy ->
+  Ir.policy ->
+  string
+(** Ask for a request where either the decision or the connector-supplied
+    selected-route label differs. Labels are opaque to core; the connector may
+    encode route/service identity without leaking target concepts into the IR. *)

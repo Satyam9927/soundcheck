@@ -493,6 +493,10 @@ the model cannot support an exact comparison:
 soundcheck compare before.yaml after.yaml --format json
 ```
 
+Use `--mode route-service` for the stronger comparison that also requires the
+same selected route and service. Explicit, unique route names are required for
+that mode. It still does not compare service URLs or transformed upstream paths.
+
 Bind comparison to the same immutable contract used by a repair loop to prove
 both that the replacement satisfies the intent and that decisions outside its
 path/method/host scope did not change:
@@ -500,6 +504,9 @@ path/method/host scope did not change:
 ```sh
 soundcheck compare before.yaml after.yaml --contract contract.yaml --format json
 ```
+
+`--mode route-service` composes with `--contract` to preserve routing identity,
+as well as security decisions, outside the frozen repair scope.
 
 With `--contract`, `--emit-smt` writes the outside-scope preservation query; the
 multi-query contract result remains embedded in the comparison report.
