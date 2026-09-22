@@ -23,6 +23,10 @@ let usage () =
     \  --format       human (default) | json\n\
     \  --emit-smt     write a single-property SMT-LIB2 query to PATH (not contracts)\n\
      \n\
+     usage: soundcheck compare <before.yaml> <after.yaml>\n\
+    \                           [--format human|json] [--emit-smt PATH]\n\
+    \  Compare Allow/Deny decisions for every modeled request.\n\
+     \n\
      usage: soundcheck profile kong [--format human|json]\n\
     \  Print the versioned Kong assurance profile and exit.\n\
      \n\
@@ -205,6 +209,27 @@ let run_mcp rest =
        exit 2
      | Ok contract -> Soundcheck_mcp.Server.run ~contract ())
 
+let run_compare before_file after_file rest =
+  let format = parse_format rest in
+  let emit_smt = parse_emit_smt rest in
+  match Parse.read_file before_file, Parse.read_file after_file with
+  | Error error, _ | _, Error error ->
+    Printf.eprintf "parse error: %s\n" error;
+    exit 1
+  | Ok before_source, Ok after_source ->
+    (match Compare.run ?emit_smt before_source after_source with
+     | Error error ->
+       Printf.eprintf "comparison error: %s\n" error;
+       exit 1
+     | Ok report ->
+       print_endline
+         (match format with Human -> Compare.to_human report | Json -> Compare.to_json report);
+       exit
+         (match report.result with
+          | Compare.Equivalent -> 0
+          | Compare.Different _ -> 3
+          | Compare.Unknown _ -> 4))
+
 let run_profile connector rest =
   let format =
     match rest with
@@ -233,6 +258,8 @@ let run_profile connector rest =
 let () =
   match Array.to_list Sys.argv with
   | _ :: "verify" :: file :: rest -> run_verify file rest
+  | _ :: "compare" :: before_file :: after_file :: rest ->
+    run_compare before_file after_file rest
   | _ :: "profile" :: connector :: rest -> run_profile connector rest
   | _ :: "mcp" :: rest -> run_mcp rest
   | _ -> usage ()
