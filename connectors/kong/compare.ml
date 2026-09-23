@@ -1,6 +1,6 @@
 open Soundcheck_core
 
-type mode = Security_decision | Route_service | Service_target
+type mode = Security_decision | Route_service | Service_target | Upstream_uri
 
 type service_target = {
   protocol : string;
@@ -14,6 +14,7 @@ type observation = {
   route    : string option;
   service  : string option;
   service_target : service_target option;
+  upstream_uri : string option;
 }
 
 type witness = {
@@ -238,6 +239,9 @@ let target_key target =
   Printf.sprintf "%s\x1f%s\x1f%d\x1f%s" target.protocol target.host target.port
     (Option.value ~default:"<no-path>" target.path)
 
+let target_endpoint_key target =
+  Printf.sprintf "%s\x1f%s\x1f%d" target.protocol target.host target.port
+
 let service_targets label (config : Ast.config) =
   let routed =
     List.filter (fun (service : Ast.service) -> service.routes <> []) config.services
@@ -260,7 +264,123 @@ let observed_label mode locations targets rule =
   match mode, List.assoc_opt rule.Ir.id locations with
   | Service_target, Some (Some service) ->
     location ^ "\x1f" ^ target_key (List.assoc service targets)
+  | Upstream_uri, Some (Some service) ->
+    location ^ "\x1f" ^ target_endpoint_key (List.assoc service targets)
   | _ -> location
+
+let rec literal_path = function
+  | Ir.Path_prefix path -> Ok (Some path)
+  | Ir.Path_regex _ -> Error "contains a regex route path"
+  | Ir.And conditions | Ir.Or conditions ->
+    let rec find = function
+      | [] -> Ok None
+      | condition :: rest ->
+        (match literal_path condition with
+         | Error _ as error -> error
+         | Ok (Some _ as path) -> Ok path
+         | Ok None -> find rest)
+    in
+    find conditions
+  | Ir.Not condition -> literal_path condition
+  | _ -> Ok None
+
+let route_by_name config name =
+  List.find_map
+    (fun (service : Ast.service) ->
+      Option.map (fun route -> (service, route))
+        (List.find_opt (fun (route : Ast.route) -> route.name = name)
+           service.routes))
+    config.Ast.services
+
+let drop count = Smt_encode.Drop_prefix count
+let lit value = Smt_encode.Literal value
+let concat terms = Smt_encode.Concat terms
+
+let sanitized_postfix offset =
+  let raw = drop offset in
+  let without_parent =
+    Smt_encode.If
+      ( Smt_encode.Starts_with (raw, "../"),
+        drop (offset + 3), raw )
+  in
+  let without_current =
+    Smt_encode.If
+      ( Smt_encode.Starts_with (raw, "./"),
+        drop (offset + 2), without_parent )
+  in
+  Smt_encode.If
+    ( Smt_encode.Equal (raw, lit "."), lit "",
+      Smt_encode.If
+        (Smt_encode.Equal (raw, lit ".."), lit "", without_current) )
+
+let upstream_path_term (route : Ast.route) target matched_path =
+  let base = Option.value ~default:"/" target.path in
+  let postfix =
+    match matched_path with
+    | None -> drop 1
+    | Some prefix -> sanitized_postfix (String.length prefix)
+  in
+  let base_ends_slash = String.ends_with ~suffix:"/" base in
+  if route.path_handling = "v1" then
+    if route.strip_path then
+      if base_ends_slash then
+        Smt_encode.If
+          ( Smt_encode.Starts_with (postfix, "/"),
+            concat [ lit (String.sub base 0 (String.length base - 1)); postfix ],
+            concat [ lit base; postfix ] )
+      else concat [ lit base; postfix ]
+    else concat [ lit base; drop 1 ]
+  else if base_ends_slash then
+    if route.strip_path then
+      Smt_encode.If
+        ( Smt_encode.Equal (postfix, lit ""),
+          (if base = "/" then lit "/"
+           else
+             Smt_encode.If
+               ( Smt_encode.Ends_with (Smt_encode.Request_path, "/"),
+                 lit base,
+                 lit (String.sub base 0 (String.length base - 1)) )),
+          Smt_encode.If
+            ( Smt_encode.Starts_with (postfix, "/"),
+              concat [ lit (String.sub base 0 (String.length base - 1)); postfix ],
+              concat [ lit base; postfix ] ) )
+    else concat [ lit base; drop 1 ]
+  else if route.strip_path then
+    Smt_encode.If
+      ( Smt_encode.Equal (postfix, lit ""),
+        Smt_encode.If
+          ( Smt_encode.Length_greater_than (Smt_encode.Request_path, 1),
+            Smt_encode.If
+              ( Smt_encode.Ends_with (Smt_encode.Request_path, "/"),
+                concat [ lit base; lit "/" ], lit base ),
+            lit base ),
+        Smt_encode.If
+          ( Smt_encode.Starts_with (postfix, "/"),
+            concat [ lit base; postfix ],
+            concat [ lit base; lit "/"; postfix ] ) )
+  else
+    Smt_encode.If
+      ( Smt_encode.Equal (Smt_encode.Request_path, lit "/"),
+        lit base,
+        concat [ lit base; Smt_encode.Request_path ] )
+
+let upstream_terms label config targets policy =
+  let rec build acc = function
+    | [] -> Ok acc
+    | (rule : Ir.rule) :: rest ->
+      (match route_by_name config rule.id with
+       | None -> build ((rule, lit "") :: acc) rest
+       | Some (service, route) ->
+         match literal_path rule.match_ with
+         | Error reason ->
+           Error (Printf.sprintf "%s config route %S %s" label route.name reason)
+         | Ok matched_path ->
+           let target = List.assoc service.name targets in
+           build ((rule, upstream_path_term route target matched_path) :: acc) rest)
+  in
+  Result.map
+    (fun terms rule -> List.assq rule terms)
+    (build [] policy.Ir.rules)
 
 let request_of_model (model : Solve.model) : Ir.request =
   { principal = if model.is_anon then Anonymous else Authenticated "subject";
@@ -272,11 +392,18 @@ let request_of_model (model : Solve.model) : Ir.request =
     scheme = model.scheme;
     sni = model.sni }
 
-let observe config targets (policy : Ir.policy) model =
+let authority target =
+  let host = if String.contains target.host ':' then "[" ^ target.host ^ "]" else target.host in
+  Printf.sprintf "%s://%s:%d" target.protocol host target.port
+
+let observe config targets value (policy : Ir.policy) model =
   let request = request_of_model model in
-  let routes =
+  let selected_rules =
     policy.Ir.rules
     |> List.filter (Ir.selected policy request)
+  in
+  let routes =
+    selected_rules
     |> List.map (fun (rule : Ir.rule) -> rule.id)
     |> List.sort_uniq String.compare
   in
@@ -285,7 +412,16 @@ let observe config targets (policy : Ir.policy) model =
   { decision = Ir.evaluate policy request;
     route;
     service;
-    service_target = Option.bind service (fun name -> List.assoc_opt name targets) }
+    service_target = Option.bind service (fun name -> List.assoc_opt name targets);
+    upstream_uri =
+      (match selected_rules, service with
+       | [ rule ], Some service ->
+         Option.map
+           (fun value ->
+             authority (List.assoc service targets)
+             ^ Smt_encode.eval_string_term ~path:model.path (value rule))
+           value
+       | _ -> None) }
 
 let run_comparison ?(z3 = "z3") ?emit_smt ?(when_ = Ir.True)
     ?(mode = Security_decision) before_source after_source =
@@ -298,7 +434,7 @@ let run_comparison ?(z3 = "z3") ?emit_smt ?(when_ = Ir.True)
     let identities =
       match mode with
       | Security_decision -> Ok (([], []), ([], []))
-      | Route_service | Service_target ->
+      | Route_service | Service_target | Upstream_uri ->
         (match routing_identity "before" before_config with
          | Error _ as error -> error
          | Ok before ->
@@ -333,7 +469,22 @@ let run_comparison ?(z3 = "z3") ?emit_smt ?(when_ = Ir.True)
       let after_policy = Lower.to_policy after_config in
       let before_label = observed_label mode before_locations before_targets in
       let after_label = observed_label mode after_locations after_targets in
-      (match exact_policy ~z3 ~rule_label:before_label mode "before" before_policy with
+      let values =
+        if mode <> Upstream_uri then Ok (None, None)
+        else
+          match
+            upstream_terms "before" before_config before_targets before_policy
+          with
+          | Error _ as error -> error
+          | Ok before_value ->
+            Result.map
+              (fun after_value -> (Some before_value, Some after_value))
+              (upstream_terms "after" after_config after_targets after_policy)
+      in
+      (match values with
+       | Error reason -> Ok { result = Unknown reason; profile; mode }
+       | Ok (before_value, after_value) ->
+      match exact_policy ~z3 ~rule_label:before_label mode "before" before_policy with
        | Error reason -> Ok { result = Unknown reason; profile; mode }
        | Ok () ->
          match exact_policy ~z3 ~rule_label:after_label mode "after" after_policy with
@@ -343,8 +494,9 @@ let run_comparison ?(z3 = "z3") ?emit_smt ?(when_ = Ir.True)
            match mode with
            | Security_decision ->
              Smt_encode.decision_equivalence_query ~when_ before_policy after_policy
-           | Route_service | Service_target ->
-             Smt_encode.route_equivalence_query ~when_
+           | Route_service | Service_target | Upstream_uri ->
+             Smt_encode.route_equivalence_query ~when_ ?left_value:before_value
+               ?right_value:after_value
                ~left_label:before_label ~right_label:after_label before_policy
                after_policy
          in
@@ -356,8 +508,12 @@ let run_comparison ?(z3 = "z3") ?emit_smt ?(when_ = Ir.True)
              { result =
                  Different
                    { request;
-                     before = observe before_config before_targets before_policy request;
-                     after = observe after_config after_targets after_policy request };
+                     before =
+                       observe before_config before_targets before_value before_policy
+                         request;
+                     after =
+                       observe after_config after_targets after_value after_policy
+                         request };
                profile;
                mode })
 
@@ -393,10 +549,10 @@ let target_json = function
 
 let observation_json observation =
   Printf.sprintf
-    "{\"decision\":%s,\"route\":%s,\"service\":%s,\"service_target\":%s}"
+    "{\"decision\":%s,\"route\":%s,\"service\":%s,\"service_target\":%s,\"upstream_uri\":%s}"
     (jstring (Ir.string_of_decision observation.decision |> String.lowercase_ascii))
     (jopt observation.route) (jopt observation.service)
-    (target_json observation.service_target)
+    (target_json observation.service_target) (jopt observation.upstream_uri)
 
 let witness_json witness =
   let request = witness.request in
@@ -420,6 +576,7 @@ let to_json report =
     | Security_decision -> "security_decision"
     | Route_service -> "route_service"
     | Service_target -> "service_target"
+    | Upstream_uri -> "upstream_uri"
   in
   let head =
     Printf.sprintf "\"schema_version\":1,\"comparison\":%s,\"assurance_profile\":%s"
@@ -437,7 +594,7 @@ let to_json report =
       head (jstring reason)
 
 let observation_human label observation =
-  Printf.sprintf "%s: %s%s%s%s" label (Ir.string_of_decision observation.decision)
+  Printf.sprintf "%s: %s%s%s%s%s" label (Ir.string_of_decision observation.decision)
     (match observation.route with None -> "" | Some route -> ", route " ^ route)
     (match observation.service with None -> "" | Some service -> ", service " ^ service)
     (match observation.service_target with
@@ -445,6 +602,9 @@ let observation_human label observation =
      | Some target ->
        Printf.sprintf ", target %s://%s:%d%s" target.protocol target.host
          target.port (Option.value ~default:"" target.path))
+    (match observation.upstream_uri with
+     | None -> ""
+     | Some uri -> ", upstream URI " ^ uri)
 
 let to_human report =
   match report.result with
@@ -454,7 +614,9 @@ let to_human report =
        | Security_decision -> "security decisions"
        | Route_service -> "security decisions and selected route/service"
        | Service_target ->
-         "security decisions, selected route/service, and service target")
+         "security decisions, selected route/service, and service target"
+       | Upstream_uri ->
+         "security decisions, selected route/service, and upstream URI")
       report.profile
   | Unknown reason -> Printf.sprintf "UNKNOWN  %s" reason
   | Different witness ->
@@ -526,6 +688,7 @@ let repair_to_json report =
     | Security_decision -> "frozen_scope_preservation"
     | Route_service -> "frozen_route_service_preservation"
     | Service_target -> "frozen_service_target_preservation"
+    | Upstream_uri -> "frozen_upstream_uri_preservation"
   in
   let head result =
     Printf.sprintf
@@ -556,7 +719,9 @@ let repair_to_human report =
        | Security_decision -> "every security decision"
        | Route_service -> "every security decision and selected route/service"
        | Service_target ->
-         "every security decision, selected route/service, and service target")
+         "every security decision, selected route/service, and service target"
+       | Upstream_uri ->
+         "every security decision, selected route/service, and upstream URI")
       report.profile
       (Contract_spec.canonical_json report.frozen_spec)
   | Contract_failed ->

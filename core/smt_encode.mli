@@ -60,13 +60,32 @@ val decision_equivalence_query :
     separately establish that each lowered policy is exact enough for an
     equivalence proof. *)
 
+type string_term =
+  | Request_path
+  | Literal of string
+  | Concat of string_term list
+  | Drop_prefix of int
+  | If of string_test * string_term * string_term
+
+and string_test =
+  | Equal of string_term * string_term
+  | Starts_with of string_term * string
+  | Ends_with of string_term * string
+  | Length_greater_than of string_term * int
+
+val eval_string_term : path:string -> string_term -> string
+(** Concrete reading of a symbolic string observation. Connectors use the same
+    term for SMT comparison and counterexample rendering. *)
+
 val route_equivalence_query :
   ?when_:Ir.condition ->
+  ?left_value:(Ir.rule -> string_term) ->
+  ?right_value:(Ir.rule -> string_term) ->
   left_label:(Ir.rule -> string) ->
   right_label:(Ir.rule -> string) ->
   Ir.policy ->
   Ir.policy ->
   string
-(** Ask for a request where either the decision or the connector-supplied
-    selected-route label differs. Labels are opaque to core; the connector may
-    encode route/service identity without leaking target concepts into the IR. *)
+(** Ask for a request where either the decision, connector-supplied selected
+    label, or optional request-dependent string observation differs. Labels and
+    values are connector-defined, so target concepts do not enter the IR. *)

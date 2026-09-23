@@ -292,8 +292,66 @@ let decision_equivalence_query ?(when_ = Ir.True) (left : Ir.policy)
     (Printf.sprintf "(assert (xor %s %s))\n" left_allows right_allows);
   epilogue b headers
 
-let route_equivalence_query ?(when_ = Ir.True) ~left_label ~right_label
-    (left : Ir.policy) (right : Ir.policy) : string =
+type string_term =
+  | Request_path
+  | Literal of string
+  | Concat of string_term list
+  | Drop_prefix of int
+  | If of string_test * string_term * string_term
+
+and string_test =
+  | Equal of string_term * string_term
+  | Starts_with of string_term * string
+  | Ends_with of string_term * string
+  | Length_greater_than of string_term * int
+
+let rec string_term = function
+  | Request_path -> "path"
+  | Literal value -> smt_str value
+  | Concat [] -> smt_str ""
+  | Concat [ term ] -> string_term term
+  | Concat terms ->
+    Printf.sprintf "(str.++ %s)"
+      (String.concat " " (List.map string_term terms))
+  | Drop_prefix count ->
+    Printf.sprintf "(str.substr path %d (- (str.len path) %d))" count count
+  | If (test, yes, no) ->
+    Printf.sprintf "(ite %s %s %s)" (string_test test) (string_term yes)
+      (string_term no)
+
+and string_test = function
+  | Equal (left, right) ->
+    Printf.sprintf "(= %s %s)" (string_term left) (string_term right)
+  | Starts_with (term, prefix) ->
+    Printf.sprintf "(str.prefixof %s %s)" (smt_str prefix) (string_term term)
+  | Ends_with (term, suffix) ->
+    Printf.sprintf "(str.suffixof %s %s)" (smt_str suffix) (string_term term)
+  | Length_greater_than (term, length) ->
+    Printf.sprintf "(> (str.len %s) %d)" (string_term term) length
+
+let rec eval_string_term ~path = function
+  | Request_path -> path
+  | Literal value -> value
+  | Concat terms ->
+    terms |> List.map (eval_string_term ~path) |> String.concat ""
+  | Drop_prefix count ->
+    if count >= String.length path then ""
+    else String.sub path count (String.length path - count)
+  | If (test, yes, no) ->
+    eval_string_term ~path (if eval_string_test ~path test then yes else no)
+
+and eval_string_test ~path = function
+  | Equal (left, right) ->
+    eval_string_term ~path left = eval_string_term ~path right
+  | Starts_with (term, prefix) ->
+    String.starts_with ~prefix (eval_string_term ~path term)
+  | Ends_with (term, suffix) ->
+    String.ends_with ~suffix (eval_string_term ~path term)
+  | Length_greater_than (term, length) ->
+    String.length (eval_string_term ~path term) > length
+
+let route_equivalence_query ?(when_ = Ir.True) ?left_value ?right_value
+    ~left_label ~right_label (left : Ir.policy) (right : Ir.policy) : string =
   let b = Buffer.create 1024 in
   let headers =
     unique_headers (when_ :: policy_conditions left @ policy_conditions right)
@@ -330,6 +388,28 @@ let route_equivalence_query ?(when_ = Ir.True) ~left_label ~right_label
              (selected_label left left_label label)
              (selected_label right right_label label))
          labels
+  in
+  let differences =
+    match left_value, right_value with
+    | Some left_value, Some right_value ->
+      let value_differences =
+        List.concat_map
+          (fun left_rule ->
+            List.map
+              (fun right_rule ->
+                Printf.sprintf "(and %s %s (not (= %s %s)))"
+                  (Printf.sprintf "(and %s %s)" (cond left.request_domain)
+                     (selected left.rules left_rule))
+                  (Printf.sprintf "(and %s %s)" (cond right.request_domain)
+                     (selected right.rules right_rule))
+                  (string_term (left_value left_rule))
+                  (string_term (right_value right_rule)))
+              right.rules)
+          left.rules
+      in
+      differences @ value_differences
+    | None, None -> differences
+    | _ -> invalid_arg "route_equivalence_query requires both value callbacks"
   in
   Buffer.add_string b "; at least one connector admits the request:\n";
   Buffer.add_string b
