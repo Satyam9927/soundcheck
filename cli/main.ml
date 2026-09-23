@@ -10,7 +10,7 @@ let usage () =
     "usage: soundcheck verify <config.yaml> --contract CONTRACT.yaml\n\
     \   or: soundcheck verify <config.yaml> [--property P] [--path-prefix PREFIX]\n\
     \                                       [--method METHOD] [--host HOST]\n\
-    \                                       [--format human|json] [--emit-smt PATH]\n\
+    \                                       [--format human|json|github] [--emit-smt PATH]\n\
     \  --property     no-anonymous-access (default) | rate-limit-on-public\n\
     \                 | no-shadowed-routes | admin-api-not-reachable\n\
     \                 | authenticated-access | network-restricted-access\n\
@@ -40,6 +40,7 @@ let usage () =
   exit 2
 
 type format = Human | Json
+type verify_format = Standard of format | Github
 
 let parse_format rest =
   let rec find = function
@@ -50,6 +51,20 @@ let parse_format rest =
       exit 2
     | _ :: tl -> find tl
     | [] -> Human
+  in
+  find rest
+
+let parse_verify_format rest =
+  let rec find = function
+    | "--format" :: "human" :: _ -> Standard Human
+    | "--format" :: "json" :: _ -> Standard Json
+    | "--format" :: "github" :: _ -> Github
+    | "--format" :: other :: _ ->
+      Printf.eprintf
+        "unknown --format %S (expected human|json|github)\n" other;
+      exit 2
+    | _ :: tail -> find tail
+    | [] -> Standard Human
   in
   find rest
 
@@ -153,8 +168,14 @@ let exit_code : Report.outcome -> int = function
   | Report.Violated _ -> 3
   | Report.Unknown _ -> 4
 
+let print_verify_error format ~file ~title message =
+  match format with
+  | Github ->
+    print_endline (Soundcheck_ci.Github_annotation.error ~file ~title message)
+  | Standard _ -> Printf.eprintf "%s: %s\n" title message
+
 let run_verify file rest =
-  let format = parse_format rest in
+  let format = parse_verify_format rest in
   let emit_smt = parse_emit_smt rest in
   let contract_spec, property =
     match parse_contract_path rest with
@@ -172,7 +193,7 @@ let run_verify file rest =
        | None ->
          match Contract_spec.read_file path with
          | Error error ->
-           Printf.eprintf "contract error: %s\n" error;
+           print_verify_error format ~file:path ~title:"contract error" error;
            exit 2
          | Ok spec -> (Some spec, Contract_spec.to_property spec))
   in
@@ -180,14 +201,13 @@ let run_verify file rest =
      the verification pipeline itself is the shared {!Verify.run}. *)
   match Parse.read_file file with
   | Error e ->
-    (* File/parse failures are a CLI-level error (not a verification outcome), so
-       they stay on stderr with exit 1 regardless of --format. *)
-    Printf.eprintf "parse error: %s\n" e;
+    (* File failures are CLI-level errors rather than verification outcomes. *)
+    print_verify_error format ~file ~title:"parse error" e;
     exit 1
   | Ok config ->
     (match Verify.run ?emit_smt ~property config with
      | Error e ->
-       Printf.eprintf "verification error: %s\n" e;
+       print_verify_error format ~file ~title:"verification error" e;
        exit 1
      | Ok report ->
        let report =
@@ -197,8 +217,9 @@ let run_verify file rest =
        in
        let rendered =
          match format with
-         | Human -> Report.to_human report
-         | Json -> Report.to_json report
+         | Standard Human -> Report.to_human report
+         | Standard Json -> Report.to_json report
+         | Github -> Soundcheck_ci.Github_annotation.render ~file report
        in
        print_endline rendered;
        exit (exit_code report.result))

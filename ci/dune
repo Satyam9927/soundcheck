@@ -1,0 +1,3 @@
+(library
+ (name soundcheck_ci)
+ (libraries soundcheck_core))

@@ -77,6 +77,28 @@
  (name equivalence_t)
  (libraries soundcheck_core soundcheck_kong))
 
+(test
+ (name github_annotation_t)
+ (libraries soundcheck_core soundcheck_ci))
+
+(executable
+ (name github_cli_t)
+ (libraries unix))
+
+(rule
+ (alias runtest)
+ (deps
+  ../bench/kong/cases/admin-no-auth/config.yaml
+  ../bench/kong/cases/admin-key-auth/config.yaml
+  ../bench/kong/cases/regex-unsupported-construct/config.yaml)
+ (action
+  (run
+   %{exe:github_cli_t.exe}
+   %{exe:../cli/main.exe}
+   %{dep:../bench/kong/cases/admin-no-auth/config.yaml}
+   %{dep:../bench/kong/cases/admin-key-auth/config.yaml}
+   %{dep:../bench/kong/cases/regex-unsupported-construct/config.yaml})))
+
 (executable
  (name profile_cli_t)
  (libraries soundcheck_kong unix))

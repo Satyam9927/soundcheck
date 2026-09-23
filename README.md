@@ -99,6 +99,9 @@ dune exec soundcheck -- verify bench/kong/cases/public-no-rate-limit/config.yaml
 # machine-readable, for CI
 dune exec soundcheck -- verify kong.yaml --format json
 
+# native GitHub Actions annotation, with the config attached to the finding
+dune exec soundcheck -- verify kong.yaml --contract contract.yaml --format github
+
 # verify against a human-confirmed, immutable functionality contract
 dune exec soundcheck -- verify kong.yaml \
   --contract bench/kong/contracts/admin-get.yaml --format json
@@ -286,6 +289,12 @@ the verifier in-process, so it also pins contract loading and the public MCP bou
 **Hard, at the gate: CI.** The same binary runs in CI or a pre-apply hook and blocks on
 non-zero exit, regardless of what any agent did or claimed. This is where the actual
 guarantee lives. A prompt is not an enforcement mechanism; an exit code is.
+
+In GitHub Actions, `--format github` emits a workflow-command annotation. Failed
+clauses, counterexample route/service, frozen-spec identity, assurance profile,
+and uncertainty findings are included when available. Non-proof outcomes retain
+their normal non-zero exit codes, so the annotation and branch-protection gate
+cannot disagree.
 
 Both surfaces are thin adapters over one core, so they cannot drift apart in what they
 consider verified. Soundcheck is also consumable directly as an OCaml library.
