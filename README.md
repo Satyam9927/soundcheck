@@ -495,7 +495,12 @@ soundcheck compare before.yaml after.yaml --format json
 
 Use `--mode route-service` for the stronger comparison that also requires the
 same selected route and service. Explicit, unique route names are required for
-that mode. It still does not compare service URLs or transformed upstream paths.
+that mode.
+
+Use `--mode service-target` to additionally preserve the selected service's
+normalized protocol, host, port, and base path. Both Kong's `url` shorthand and
+explicit service target fields are supported. This mode does not yet compare
+the per-request upstream path produced by `strip_path` and `path_handling`.
 
 Bind comparison to the same immutable contract used by a repair loop to prove
 both that the replacement satisfies the intent and that decisions outside its
@@ -505,8 +510,8 @@ path/method/host scope did not change:
 soundcheck compare before.yaml after.yaml --contract contract.yaml --format json
 ```
 
-`--mode route-service` composes with `--contract` to preserve routing identity,
-as well as security decisions, outside the frozen repair scope.
+Both stronger modes compose with `--contract` to preserve their observations
+outside the frozen repair scope.
 
 With `--contract`, `--emit-smt` writes the outside-scope preservation query; the
 multi-query contract result remains embedded in the comparison report.

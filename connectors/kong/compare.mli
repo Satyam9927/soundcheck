@@ -1,12 +1,20 @@
 (** Exact decision and optional route/service comparison for two Kong
     declarative configurations. *)
 
-type mode = Security_decision | Route_service
+type mode = Security_decision | Route_service | Service_target
+
+type service_target = {
+  protocol : string;
+  host     : string;
+  port     : int;
+  path     : string option;
+}
 
 type observation = {
   decision : Soundcheck_core.Ir.decision;
   route    : string option;
   service  : string option;
+  service_target : service_target option;
 }
 
 type witness = {
@@ -34,7 +42,8 @@ val run :
     attempted only when both are within the assurance profile, every route match
     is complete, and unresolved overlapping winners cannot affect the selected
     comparison mode. Route/service mode additionally requires stable explicit
-    route and service identity. *)
+    route and service identity. Service-target mode also compares each selected
+    service's normalized protocol, host, port, and base path. *)
 
 val to_human : report -> string
 val to_json : report -> string

@@ -135,6 +135,60 @@ let () =
    | _ -> failwith "distinct tied routes must prevent routing equivalence")
 
 let () =
+  let service target =
+    Printf.sprintf
+      "services: [{name: api, %s, routes: [{name: admin, paths: [/admin]}]}]"
+      target
+  in
+  let shorthand = service "url: HTTPS://Backend.Example/v1" in
+  let explicit =
+    service
+      "protocol: https, host: backend.example, port: 443, path: /v1"
+  in
+  (match (run_mode Compare.Service_target shorthand explicit).result with
+   | Compare.Equivalent -> ()
+   | _ ->
+     failwith
+       "URL shorthand and normalized explicit target fields must be equivalent");
+
+  let redirected = service "url: https://other.example/v1" in
+  (match (run_mode Compare.Service_target shorthand redirected).result with
+   | Compare.Different witness
+     when Option.map (fun target -> target.Compare.host) witness.before.service_target
+            = Some "backend.example"
+          && Option.map (fun target -> target.Compare.host)
+               witness.after.service_target
+             = Some "other.example" -> ()
+   | _ -> failwith "service-target mode must detect an upstream redirect");
+
+  let new_base_path = service "url: https://backend.example/v2" in
+  (match (run_mode Compare.Service_target shorthand new_base_path).result with
+   | Compare.Different witness
+     when Option.bind witness.before.service_target (fun target -> target.path)
+            = Some "/v1"
+          && Option.bind witness.after.service_target (fun target -> target.path)
+             = Some "/v2" -> ()
+   | _ -> failwith "service-target mode must detect a service base-path change");
+
+  let missing = service "retries: 5" in
+  (match (run_mode Compare.Service_target missing explicit).result with
+   | Compare.Unknown reason
+     when String.starts_with ~prefix:"before config service \"api\" has no upstream host"
+            reason -> ()
+   | _ -> failwith "a missing upstream host must prevent target equivalence");
+
+  let mixed =
+    service "url: https://backend.example/v1, host: backend.example"
+  in
+  (match (run_mode Compare.Service_target mixed explicit).result with
+   | Compare.Unknown reason
+     when String.starts_with
+            ~prefix:
+              "before config service \"api\" combines url shorthand with explicit"
+            reason -> ()
+   | _ -> failwith "mixed shorthand and explicit targets must fail closed")
+
+let () =
   let frozen =
     contract
       {|schema_version: 1

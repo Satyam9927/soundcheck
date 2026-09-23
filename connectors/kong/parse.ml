@@ -108,6 +108,14 @@ let int_field key v ~default =
   | Some (`String s) -> (try int_of_string (String.trim s) with _ -> default)
   | _ -> default
 
+let optional_int_field key v =
+  match member key v with
+  | Some (`Float f) -> Some (int_of_float f)
+  | Some (`String s) -> int_of_string_opt (String.trim s)
+  | _ -> None
+
+let optional_string_field key v = Option.bind (member key v) to_string
+
 let route_of (v : Yaml.value) : Ast.route =
   {
     name = name_of v ~default:"<unnamed-route>";
@@ -131,7 +139,11 @@ let route_of (v : Yaml.value) : Ast.route =
 let service_of (v : Yaml.value) : Ast.service =
   {
     name = name_of v ~default:"<unnamed-service>";
-    url = (match member "url" v with Some (`String u) -> u | _ -> "");
+    url = optional_string_field "url" v;
+    protocol = optional_string_field "protocol" v;
+    host = optional_string_field "host" v;
+    port = optional_int_field "port" v;
+    path = optional_string_field "path" v;
     routes =
       (match member "routes" v with Some (`A xs) -> List.map route_of xs | _ -> []);
     plugins = plugins_of (member "plugins" v);

@@ -120,7 +120,14 @@ let check_top_level_route (config : Ast.config) (top : Ast.top_level_route) =
     | Some _ -> Ok () (* Already validated after insertion into its service. *)
     | None ->
       let no_service : Ast.service =
-        { name = "<no-service>"; url = ""; routes = []; plugins = [] }
+        { name = "<no-service>";
+          url = None;
+          protocol = None;
+          host = None;
+          port = None;
+          path = None;
+          routes = [];
+          plugins = [] }
       in
       (match check_route no_service top.route with
        | Error _ as error -> error

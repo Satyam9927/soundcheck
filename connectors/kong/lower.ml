@@ -260,7 +260,7 @@ let match_condition (variant : sni_variant) (path : string option)
 let admin_ports = [ "8001"; "8444" ]
 
 let targets_admin_api (service : Ast.service) : bool =
-  let url = service.url in
+  let url = Option.value ~default:"" service.url in
   (* take the ":port" that follows the host, before any path *)
   let after_scheme =
     match String.index_opt url ':' with
@@ -484,7 +484,14 @@ let to_policy (cfg : Ast.config) : Ir.policy =
       cfg.services
   in
   let no_service : Ast.service =
-    { name = "<no-service>"; url = ""; routes = []; plugins = [] }
+    { name = "<no-service>";
+      url = None;
+      protocol = None;
+      host = None;
+      port = None;
+      path = None;
+      routes = [];
+      plugins = [] }
   in
   let service_less_rules =
     cfg.top_level_routes
