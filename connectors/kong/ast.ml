@@ -44,6 +44,8 @@ type route = {
       (* Kong's declared tiebreak between REGEX routes (schema default 0); it is
          not consulted for plain-prefix routes. Reading the number the config
          states beats inferring one. *)
+  strip_path     : bool;
+  path_handling  : string;
 }
 
 type service = {

@@ -134,6 +134,9 @@ let route_of (v : Yaml.value) : Ast.route =
        | Some (`A (_ :: _)), _ | _, Some (`A (_ :: _)) -> true
        | _ -> false);
     regex_priority = int_field "regex_priority" v ~default:0;
+    strip_path = bool_in "strip_path" v ~default:true;
+    path_handling =
+      Option.value ~default:"v0" (optional_string_field "path_handling" v);
   }
 
 let service_of (v : Yaml.value) : Ast.service =

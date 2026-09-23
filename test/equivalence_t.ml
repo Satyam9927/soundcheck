@@ -189,6 +189,105 @@ let () =
    | _ -> failwith "mixed shorthand and explicit targets must fail closed")
 
 let () =
+  let config ?(route_fields = "") service_path =
+    Printf.sprintf
+      {|services:
+  - name: api
+    url: http://backend%s
+    routes:
+    - name: api-route
+      paths: [/api]
+      %s
+|}
+      service_path route_fields
+  in
+  let stripped = config "/service" in
+  let retained = config ~route_fields:"strip_path: false" "/service" in
+  let report = run_mode Compare.Upstream_uri stripped retained in
+  (match report.result with
+   | Compare.Different witness
+     when witness.before.upstream_uri <> witness.after.upstream_uri
+          && witness.before.upstream_uri <> None
+          && witness.after.upstream_uri <> None -> ()
+   | _ ->
+     failwith
+       ("upstream-URI mode must detect strip_path changes: "
+        ^ Compare.to_human report));
+
+  let v1 = config ~route_fields:"path_handling: v1" "/service" in
+  (match (run_mode Compare.Upstream_uri stripped v1).result with
+   | Compare.Different witness
+     when witness.before.upstream_uri <> witness.after.upstream_uri
+          && witness.before.upstream_uri <> None
+          && witness.after.upstream_uri <> None -> ()
+   | _ -> failwith "path_handling v0/v1 must expose a concrete URI difference");
+
+  let equivalent_explicit =
+    {|services:
+  - name: api
+    protocol: http
+    host: BACKEND
+    port: 80
+    path: /service
+    routes:
+    - name: api-route
+      paths: [/api]
+|}
+  in
+  (match (run_mode Compare.Upstream_uri stripped equivalent_explicit).result with
+   | Compare.Equivalent -> ()
+   | _ -> failwith "equivalent shorthand and explicit upstream URIs must prove");
+
+  let trailing_base = config "/service/" in
+  (match (run_mode Compare.Upstream_uri stripped trailing_base).result with
+   | Compare.Equivalent -> ()
+   | _ ->
+     failwith
+       "Kong v0 slash joining must equate trailing and non-trailing service paths");
+
+  let root = config "/" in
+  let omitted = config "" in
+  (match (run_mode Compare.Upstream_uri root omitted).result with
+   | Compare.Equivalent -> ()
+   | _ -> failwith "an omitted service path and root path must be equivalent");
+
+  let pathless strip_path =
+    Printf.sprintf
+      {|services:
+  - name: api
+    url: http://backend/service
+    routes:
+    - name: api-route
+      %s
+|}
+      strip_path
+  in
+  (match
+     (run_mode Compare.Upstream_uri (pathless "strip_path: true")
+        (pathless "strip_path: false")).result
+   with
+   | Compare.Equivalent -> ()
+   | _ ->
+     failwith
+       "strip_path must not create a false difference without a route path");
+
+  let regex =
+    {|services:
+  - name: api
+    url: http://backend/service
+    routes:
+    - name: api-route
+      paths: ['~/api/[0-9]+']
+|}
+  in
+  (match (run_mode Compare.Upstream_uri regex regex).result with
+   | Compare.Unknown reason
+     when String.starts_with
+            ~prefix:"before config route \"api-route\" contains a regex route path"
+            reason -> ()
+   | _ -> failwith "regex upstream transformation must fail closed")
+
+let () =
   let frozen =
     contract
       {|schema_version: 1
@@ -367,3 +466,62 @@ assumptions:
   then
     failwith
       "principal and trusted CIDR must govern clauses, not narrow repair scope"
+
+let () =
+  let frozen =
+    contract
+      {|schema_version: 1
+kind: authenticated-access
+scope:
+  path_prefix: /admin
+|}
+  in
+  let before =
+    {|services:
+  - name: api
+    url: http://backend/service
+    routes:
+    - {name: admin, paths: [/admin]}
+    - {name: public, paths: [/public]}
+|}
+  in
+  let repaired =
+    {|services:
+  - name: api
+    url: http://backend/service
+    routes:
+    - name: admin
+      paths: [/admin]
+      plugins: [{name: key-auth}]
+    - {name: public, paths: [/public]}
+|}
+  in
+  (match
+     (run_repair_mode Compare.Upstream_uri frozen before repaired).result
+   with
+   | Compare.Valid_repair -> ()
+   | _ ->
+     failwith
+       "upstream URI preservation must compose with the frozen repair scope");
+  let regressed =
+    {|services:
+  - name: api
+    url: http://backend/service
+    routes:
+    - name: admin
+      paths: [/admin]
+      plugins: [{name: key-auth}]
+    - name: public
+      paths: [/public]
+      strip_path: false
+|}
+  in
+  (match
+     (run_repair_mode Compare.Upstream_uri frozen before regressed).result
+   with
+   | Compare.Out_of_scope_regression witness
+     when String.starts_with ~prefix:"/public" witness.request.path
+          && witness.before.upstream_uri <> witness.after.upstream_uri -> ()
+   | _ ->
+     failwith
+       "an upstream URI change outside frozen scope must be a regression")

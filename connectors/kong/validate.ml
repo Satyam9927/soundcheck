@@ -21,7 +21,12 @@ let protocol_family = function
   | _ -> None
 
 let check_route (service : Ast.service) (route : Ast.route) =
-  if route.protocols = [] then
+  if not (List.mem route.path_handling [ "v0"; "v1" ]) then
+    Error
+      (Printf.sprintf
+         "invalid Kong config: route %S (service %S) has unknown path_handling %S"
+         route.name service.name route.path_handling)
+  else if route.protocols = [] then
     Error
       (Printf.sprintf
          "invalid Kong config: route %S (service %S) protocols must not be empty"

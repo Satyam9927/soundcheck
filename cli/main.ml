@@ -25,7 +25,7 @@ let usage () =
      \n\
      usage: soundcheck compare <before.yaml> <after.yaml>\n\
     \                           [--contract CONTRACT.yaml]\n\
-    \                           [--mode decision|route-service|service-target]\n\
+    \                           [--mode decision|route-service|service-target|upstream-uri]\n\
     \                           [--format human|json] [--emit-smt PATH]\n\
     \  Without --contract, compare every modeled Allow/Deny decision.\n\
     \  With --contract, verify the replacement and preserve decisions outside\n\
@@ -221,13 +221,15 @@ let run_compare before_file after_file rest =
       | "--mode" :: "decision" :: _ -> Compare.Security_decision
       | "--mode" :: "route-service" :: _ -> Compare.Route_service
       | "--mode" :: "service-target" :: _ -> Compare.Service_target
+      | "--mode" :: "upstream-uri" :: _ -> Compare.Upstream_uri
       | "--mode" :: value :: _ ->
         Printf.eprintf
-          "unknown --mode %S (expected decision|route-service|service-target)\n" value;
+          "unknown --mode %S (expected decision|route-service|service-target|upstream-uri)\n"
+          value;
         exit 2
       | [ "--mode" ] ->
         prerr_endline
-          "--mode requires decision, route-service, or service-target";
+          "--mode requires decision, route-service, service-target, or upstream-uri";
         exit 2
       | _ :: tail -> find tail
       | [] -> Compare.Security_decision

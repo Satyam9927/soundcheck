@@ -1,7 +1,7 @@
 (** Exact decision and optional route/service comparison for two Kong
     declarative configurations. *)
 
-type mode = Security_decision | Route_service | Service_target
+type mode = Security_decision | Route_service | Service_target | Upstream_uri
 
 type service_target = {
   protocol : string;
@@ -15,6 +15,7 @@ type observation = {
   route    : string option;
   service  : string option;
   service_target : service_target option;
+  upstream_uri : string option;
 }
 
 type witness = {
@@ -43,7 +44,9 @@ val run :
     is complete, and unresolved overlapping winners cannot affect the selected
     comparison mode. Route/service mode additionally requires stable explicit
     route and service identity. Service-target mode also compares each selected
-    service's normalized protocol, host, port, and base path. *)
+    service's normalized protocol, host, port, and base path. Upstream-URI mode
+    additionally compares the request-dependent transformed upstream path for
+    literal route paths. *)
 
 val to_human : report -> string
 val to_json : report -> string

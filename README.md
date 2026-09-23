@@ -353,15 +353,13 @@ are untouched, and the property templates above come along for free.
 
 This is an early project and the boundaries are worth stating plainly.
 
-- **Routing is modelled over path, method and host.** Header and SNI matching, stream
-  `sources`/`destinations`, and `strip_path` / `path_handling` remain out of scope. A route
-  carrying one of those is given a rank incomparable with every other route, so it neither
-  suppresses nor is suppressed. That is not caution: ignoring a routing constraint makes
-  `match_` an over-approximation, which is harmless where it appears positively but not
-  where it appears *negated* in the suppression term, and an over-approximated suppressor
-  hides whatever sits below it. A route whose host contains uppercase is treated the same
-  way, since the server lowercases the Host before routing and such a route can never
-  match.
+- **HTTP routing is modelled over normalized path, method, host, exact headers,
+  protocol, and exact SNI.** Stream `sources`/`destinations` remain out of scope.
+  A route carrying an unmodelled criterion is given a rank incomparable with
+  every other route, so it neither suppresses nor is suppressed. Upstream-URI
+  comparison models `strip_path` and `path_handling` for literal route paths;
+  regex-path transformation fails closed. A route whose host contains uppercase
+  is also left incomparable, since the server lowercases the request Host.
 - **Route priority is derived from prefix length only.** Routing is winner-takes-all, as a
   real gateway does it, but Kong also ranks on the number of match criteria, which is not
   modelled. Rather than guess an order, unmodelled cases are left as **ties**, and a tie
@@ -499,8 +497,12 @@ that mode.
 
 Use `--mode service-target` to additionally preserve the selected service's
 normalized protocol, host, port, and base path. Both Kong's `url` shorthand and
-explicit service target fields are supported. This mode does not yet compare
-the per-request upstream path produced by `strip_path` and `path_handling`.
+explicit service target fields are supported.
+
+Use `--mode upstream-uri` for the strongest comparison. It also proves that the
+per-request URI sent upstream is unchanged after applying the matched literal
+route prefix, `strip_path`, `path_handling`, and Kong's slash-joining rules.
+Regex route-path transformation is rejected as unknown rather than approximated.
 
 Bind comparison to the same immutable contract used by a repair loop to prove
 both that the replacement satisfies the intent and that decisions outside its
