@@ -30,6 +30,20 @@ ARG RUN_TESTS=1
 RUN opam exec -- dune build ./cli/main.exe \
  && if [ "$RUN_TESTS" = "1" ]; then timeout 900 opam exec -- dune test; fi
 
+# --- engine-runtime: engine + z3 only, for live dev ---------------------------
+# `./start.sh --dev` runs this as a long-lived container and the natively running
+# Next.js dev server reaches it through docker/engine-bridge.mjs. Building this
+# target skips the web stage entirely.
+FROM debian:trixie-slim AS engine-runtime
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends z3 tini \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=engine /home/opam/src/_build/default/cli/main.exe /usr/local/bin/soundcheck
+WORKDIR /work
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["sleep", "infinity"]
+
 # --- web: Next.js standalone build -------------------------------------------
 FROM node:22-trixie-slim AS web
 

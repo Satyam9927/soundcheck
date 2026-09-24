@@ -1,7 +1,7 @@
 import "server-only";
 
 import { spawn } from "node:child_process";
-import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -159,12 +159,17 @@ export async function execEngine(args: string[]): Promise<RunResult> {
   }
 }
 
-/** Writes inputs to a private temp directory for the lifetime of `fn`. */
+/**
+ * Writes inputs to a private temp directory for the lifetime of `fn`. The root is
+ * SOUNDCHECK_WORKDIR when set, so a containerized engine can see it via a mount.
+ */
 export async function withWorkspace<T>(
   files: Record<string, string>,
   fn: (paths: Record<string, string>) => Promise<T>,
 ): Promise<T> {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "soundcheck-web-"));
+  const root = process.env.SOUNDCHECK_WORKDIR ?? os.tmpdir();
+  await mkdir(root, { recursive: true });
+  const dir = await mkdtemp(path.join(root, "soundcheck-web-"));
   try {
     const paths: Record<string, string> = {};
     for (const [name, content] of Object.entries(files)) {
@@ -178,12 +183,32 @@ export async function withWorkspace<T>(
   }
 }
 
-export async function engineStatus(): Promise<EngineStatus> {
-  const [engine, solver] = await Promise.all([resolveEngine(), probe("z3", ["--version"])]);
-  const solverStatus = {
+/** A wrapper script may run the engine elsewhere, so ask it to solve something real. */
+async function solverWorksThroughEngine() {
+  try {
+    return await withWorkspace({ "probe.yaml": "services: []\n" }, async (paths) => {
+      const result = await execEngine(["verify", paths["probe.yaml"], "--format", "json"]);
+      return result.exitCode === 0;
+    });
+  } catch {
+    return false;
+  }
+}
+
+async function solverStatusFor(engine: Engine | null): Promise<EngineStatus["solver"]> {
+  if (engine?.source === "script") {
+    return { available: await solverWorksThroughEngine(), version: null };
+  }
+  const solver = await probe("z3", ["--version"]);
+  return {
     available: solver !== null,
     version: solver ? solver.stdout.trim().replace(/^Z3 version\s*/i, "") : null,
   };
+}
+
+export async function engineStatus(): Promise<EngineStatus> {
+  const engine = await resolveEngine();
+  const solverStatus = await solverStatusFor(engine);
   if (!engine) {
     return {
       available: false,
@@ -206,7 +231,9 @@ export async function engineStatus(): Promise<EngineStatus> {
       message: profile
         ? solverStatus.available
           ? null
-          : "The z3 binary is not on PATH, so verification and comparison will fail."
+          : engine.source === "script"
+            ? "The engine wrapper could not complete a verification. Is the engine container running?"
+            : "The z3 binary is not on PATH, so verification and comparison will fail."
         : result.stderr.trim() || "The engine did not return a profile.",
     };
   } catch (error) {
