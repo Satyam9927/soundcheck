@@ -49,15 +49,18 @@ port_node_pids() {
 
 stopped=0
 
-# Docker mode: only the container start.sh names; images and volumes are untouched.
-CONTAINER="soundcheck-web"
-if command -v docker >/dev/null 2>&1 &&
-  [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null)" = "true" ]; then
-  info "Stopping container $CONTAINER"
-  docker stop "$CONTAINER" >/dev/null
-  stopped=1
-fi
+# Only the containers start.sh names; images and volumes are untouched.
+for CONTAINER in soundcheck-web soundcheck-engine; do
+  if command -v docker >/dev/null 2>&1 &&
+    [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null)" = "true" ]; then
+    info "Stopping container $CONTAINER"
+    docker stop "$CONTAINER" >/dev/null
+    stopped=1
+  fi
+done
 rm -f "$RUN_DIR/mode"
+# Scratch inputs the dev-mode engine read through its bind mount.
+rm -rf "$RUN_DIR/engine-work"
 
 if [ -f "$PID_FILE" ]; then
   PID="$(cat "$PID_FILE")"

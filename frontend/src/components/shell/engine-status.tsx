@@ -84,7 +84,11 @@ export function EngineStatusCard() {
             <dd className="truncate font-mono text-ink-2" title={status.label}>{status.label}</dd>
             <dt className="text-ink-3">Solver</dt>
             <dd className="truncate font-mono text-ink-2">
-              {status.solver.available ? `z3 ${status.solver.version}` : "z3 not on PATH"}
+              {status.solver.available
+                ? status.solver.version
+                  ? `z3 ${status.solver.version}`
+                  : "z3 via engine"
+                : "z3 unavailable"}
             </dd>
           </dl>
           {status.message && <p className="text-2xs leading-relaxed text-ink-2">{status.message}</p>}

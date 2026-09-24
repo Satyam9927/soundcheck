@@ -37,6 +37,27 @@ docker run --rm -v "$PWD:/work" soundcheck:local verify kong.yaml   # the same, 
 The image uses Debian 13 because its Z3 (4.13.x) is required. Debian 12's Z3 4.8.12
 never returns on one shadowing query in the corpus.
 
+### Live development (hot reload, engine in Docker)
+
+```bash
+./start.sh --dev           # Next.js dev server on :3000 + engine container   (--port N, --skip-tests)
+./stop.sh
+```
+
+The Next.js dev server runs natively, so edits under `frontend/` reload instantly with no
+restart. The engine and Z3 run in a long-lived `soundcheck-engine` container built from
+the image's `engine-runtime` stage (about 170 MB, no web build).
+`docker/engine-bridge.mjs` stands in for the binary: the app writes its inputs under
+`.run/engine-work`, which is bind-mounted into the container, and the bridge runs each
+command with `docker exec`, passing exit codes through. After changing OCaml code, run
+`./start.sh --dev` again: it rebuilds and swaps only the engine container while the dev
+server keeps running.
+
+Each engine call pays roughly 350 ms of `docker exec` overhead here, so the 212-check
+sample audit takes about 19 s in dev mode versus about 4 s in the production image.
+Running the dev server inside Docker was avoided on purpose: on Docker Desktop, file
+watching across a bind mount needs polling, which the Next.js docs advise against.
+
 ### Native (local OCaml toolchain)
 
 ```bash
