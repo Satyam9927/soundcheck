@@ -572,8 +572,12 @@ Unsupported rows must produce public `unknown` with an unsupported assessment;
 they are boundary checks, never counted as exact model agreement. Wrong target
 observations, missing possible winners, invalid bounds, and silent class changes fail.
 
-`dune test --force` runs the local suite and corpus. CI also runs real-Kong
-conformance. `bash scripts/check.sh full` runs both locally with Docker;
+`dune test --force` runs the local suite and corpus. CI uses
+`dune test --force -j 1` to serialize solver-heavy test actions: concurrent
+actions can exhaust the shared wall-clock deadline for a solver check and its
+SAT model replay. This changes scheduling, not deadlines or expected verdicts;
+the preceding build remains parallel. CI also runs real-Kong conformance.
+`bash scripts/check.sh full` runs both locally with Docker;
 `bash scripts/check-commit.sh <revision>` independently checks a committed revision
 in a clean worktree without Docker. Gate tests use synthetic local Git repositories
 and real verifier end-to-end checks; they do not install remote branch protection.

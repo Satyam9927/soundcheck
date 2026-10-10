@@ -305,3 +305,29 @@ Next is human review of this bounded batch and separate authorization to push.
 The broader roadmap still prioritizes continuous conformance/semantic acceptance,
 authorized deployment pilots and evidence-led usability before an agent benchmark
 or new connectors. Those external/expansion milestones are outside this Goal.
+
+## Hosted CI follow-up (2026-10-10)
+
+After the approved push through `e92a24c` and Sourav's PR creation, the hosted
+full regression step timed out on `plain-path-punctuation`; its other 49 corpus
+cases passed. CI already used the pinned Z3 4.16.0 archive, so this was not the
+earlier distro-Z3 issue. The unchanged emitted obligation's status check and SAT
+model replay took 8.99 seconds together in an isolated one-CPU Ubuntu 24.04
+container using that checksum-verified Linux binary. Running an identical
+bounded solver job alongside it exhausted the same ten-second budget at 10.03
+seconds. This reproduces contention sensitivity, not the original hosted
+runner's exact load.
+
+The CI test step now uses `dune test --force -j 1` to avoid competition between
+solver-heavy test actions; the preceding build remains parallel. It reruns the
+entire suite without retries. No verifier code, query encoding, fixture,
+expected verdict, timeout, schema, frozen contract or assurance boundary changes.
+Serialization removes suite-internal competition, not arbitrary host slowness.
+
+The build and complete forced sequential suite passed locally, including all
+50 corpus cases and the existing timeout/protocol regressions. An earlier
+sandboxed attempt hit the host-wide open-file limit; the approved direct-host
+rerun completed without changing OS limits or stopping unrelated processes.
+Independent review found no blocker. Real-Kong conformance is unchanged and was
+not rerun for this scheduling-only follow-up; exact-commit validation and push
+status are recorded in the handoff and project memory.

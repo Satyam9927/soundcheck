@@ -61,7 +61,10 @@ jobs:
         run: opam exec -- dune build
 
       - name: Test (full regression suite)
-        run: opam exec -- dune test --force
+        # Solver checks and SAT model replays share a wall-clock deadline.
+        # Avoid competing solver-heavy test actions exhausting that budget.
+        # Keep the preceding build parallel; rerun every test without retries.
+        run: opam exec -- dune test --force -j 1
 
   kong-conformance:
     name: Kong conformance (3.9.3)
