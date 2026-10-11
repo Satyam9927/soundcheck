@@ -1,0 +1,27 @@
+# name|scheme|method|path|host|sni|principal|headers|decision|route|service|status|model-class|flavors|source-ip
+# Kong 3.9.3 ip-restriction/handler.lua checks deny before a nonempty allow list.
+# plugins_iterator.lua selects combined route/service, route, service, global.
+global-allow|http|GET|/ip-global|-|-|anonymous|-|allow|ip-global|ip-global-service|200|exact|both|10.1.0.1
+global-deny-overlap|http|GET|/ip-global|-|-|anonymous|-|deny|ip-global|ip-global-service|403|exact|both|10.2.0.1
+global-outside|http|GET|/ip-global|-|-|anonymous|-|deny|ip-global|ip-global-service|403|exact|both|192.0.2.1
+global-low-boundary|http|GET|/ip-global|-|-|anonymous|-|allow|ip-global|ip-global-service|200|exact|both|10.0.0.0
+global-high-boundary|http|GET|/ip-global|-|-|anonymous|-|allow|ip-global|ip-global-service|200|exact|both|10.255.255.255
+global-adjacent-outside|http|GET|/ip-global|-|-|anonymous|-|deny|ip-global|ip-global-service|403|exact|both|11.0.0.0
+disabled-route-keeps-global|http|GET|/ip-global-disabled|-|-|anonymous|-|allow|ip-global-disabled|ip-global-service|200|exact|both|10.1.0.1
+service-overrides-global|http|GET|/ip-service|-|-|anonymous|-|allow|ip-service-only|ip-service|200|exact|both|192.168.1.1
+service-rejects-global|http|GET|/ip-service|-|-|anonymous|-|deny|ip-service-only|ip-service|403|exact|both|10.1.0.1
+service-deny-overlap|http|GET|/ip-service|-|-|anonymous|-|deny|ip-service-only|ip-service|403|exact|both|192.168.2.1
+route-overrides-service|http|GET|/ip-route|-|-|anonymous|-|allow|ip-route|ip-service|200|exact|both|172.16.0.1
+route-rejects-service|http|GET|/ip-route|-|-|anonymous|-|deny|ip-route|ip-service|403|exact|both|192.168.1.1
+disabled-route-keeps-service|http|GET|/ip-route-disabled|-|-|anonymous|-|allow|ip-route-disabled|ip-service|200|exact|both|192.168.1.1
+combined-overrides-route|http|GET|/ip-combined|-|-|anonymous|-|allow|ip-combined|ip-service|200|exact|both|198.51.100.7
+combined-rejects-route|http|GET|/ip-combined|-|-|anonymous|-|deny|ip-combined|ip-service|403|exact|both|203.0.113.7
+combined-rejects-service|http|GET|/ip-combined|-|-|anonymous|-|deny|ip-combined|ip-service|403|exact|both|192.168.1.1
+disabled-combined-keeps-route|http|GET|/ip-combined-disabled|-|-|anonymous|-|allow|ip-combined-disabled|ip-service|200|exact|both|203.0.113.7
+zero-prefix-low|http|GET|/ip-zero|-|-|anonymous|-|allow|ip-zero|ip-service|200|exact|both|0.0.0.0
+zero-prefix-high|http|GET|/ip-zero|-|-|anonymous|-|allow|ip-zero|ip-service|200|exact|both|255.255.255.255
+single-host-match|http|GET|/ip-single|-|-|anonymous|-|allow|ip-single|ip-service|200|exact|both|203.0.113.7
+single-host-left|http|GET|/ip-single|-|-|anonymous|-|deny|ip-single|ip-service|403|exact|both|203.0.113.6
+single-host-right|http|GET|/ip-single|-|-|anonymous|-|deny|ip-single|ip-service|403|exact|both|203.0.113.8
+deny-only-block|http|GET|/ip-deny-only|-|-|anonymous|-|deny|ip-deny-only|ip-service|403|exact|both|192.0.2.1
+deny-only-outside|http|GET|/ip-deny-only|-|-|anonymous|-|allow|ip-deny-only|ip-service|200|exact|both|198.51.100.1

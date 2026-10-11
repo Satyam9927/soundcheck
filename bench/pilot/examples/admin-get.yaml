@@ -1,0 +1,7 @@
+# Same reviewed intent as bench/kong/contracts/admin-get.yaml.
+# No intent is inferred from the candidate configurations.
+schema_version: 1
+kind: authenticated-access
+scope:
+  path_prefix: /admin
+  method: GET

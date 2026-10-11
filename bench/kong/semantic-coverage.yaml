@@ -1,0 +1,601 @@
+# Internal evidence inventory, not a public verifier schema or completeness claim.
+# Every target reference is immutable. Evidence levels describe samples only.
+# Backslash characters (even in comments) and literal NUL are unsupported.
+schema_version: 1
+profile: kong-traditional-http-v11
+target:
+  version: '3.9.3'
+  revision: a643428bc4d5397152164a63bcc0f8bc65fce69d
+  routers: [traditional, traditional_compatible]
+sources:
+  traditional: https://github.com/Kong/kong/blob/a643428bc4d5397152164a63bcc0f8bc65fce69d/kong/router/traditional.lua
+  compatible: https://github.com/Kong/kong/blob/a643428bc4d5397152164a63bcc0f8bc65fce69d/kong/router/transform.lua
+  normalization: https://github.com/Kong/kong/blob/a643428bc4d5397152164a63bcc0f8bc65fce69d/kong/tools/uri.lua
+  legacy-paths: https://github.com/Kong/kong/blob/a643428bc4d5397152164a63bcc0f8bc65fce69d/kong/db/migrations/migrate_path_280_300.lua
+  request-fields: https://github.com/Kong/kong/blob/a643428bc4d5397152164a63bcc0f8bc65fce69d/kong/router/fields.lua
+  request-phases: https://github.com/Kong/kong/blob/a643428bc4d5397152164a63bcc0f8bc65fce69d/kong/runloop/handler.lua
+  plugin-selection: https://github.com/Kong/kong/blob/a643428bc4d5397152164a63bcc0f8bc65fce69d/kong/runloop/plugins_iterator.lua
+  key-auth: https://github.com/Kong/kong/blob/a643428bc4d5397152164a63bcc0f8bc65fce69d/kong/plugins/key-auth/handler.lua
+  key-auth-defaults: https://github.com/Kong/kong/blob/a643428bc4d5397152164a63bcc0f8bc65fce69d/kong/plugins/key-auth/schema.lua
+  jwt: https://github.com/Kong/kong/blob/a643428bc4d5397152164a63bcc0f8bc65fce69d/kong/plugins/jwt/handler.lua
+  basic-auth: https://github.com/Kong/kong/blob/a643428bc4d5397152164a63bcc0f8bc65fce69d/kong/plugins/basic-auth/access.lua
+  rate-limiting: https://github.com/Kong/kong/blob/a643428bc4d5397152164a63bcc0f8bc65fce69d/kong/plugins/rate-limiting/handler.lua
+  response-rate-limiting: https://github.com/Kong/kong/blob/a643428bc4d5397152164a63bcc0f8bc65fce69d/kong/plugins/response-ratelimiting/handler.lua
+  ip-restriction: https://github.com/Kong/kong/blob/a643428bc4d5397152164a63bcc0f8bc65fce69d/kong/plugins/ip-restriction/handler.lua
+  request-termination: https://github.com/Kong/kong/blob/a643428bc4d5397152164a63bcc0f8bc65fce69d/kong/plugins/request-termination/handler.lua
+  services: https://github.com/Kong/kong/blob/a643428bc4d5397152164a63bcc0f8bc65fce69d/kong/db/schema/entities/services.lua
+  routes: https://github.com/Kong/kong/blob/a643428bc4d5397152164a63bcc0f8bc65fce69d/kong/db/schema/entities/routes.lua
+  plugins: https://github.com/Kong/kong/blob/a643428bc4d5397152164a63bcc0f8bc65fce69d/kong/db/schema/entities/plugins.lua
+  declarative: https://github.com/Kong/kong/blob/a643428bc4d5397152164a63bcc0f8bc65fce69d/kong/db/declarative/init.lua
+  config-defaults: https://github.com/Kong/kong/blob/a643428bc4d5397152164a63bcc0f8bc65fce69d/kong.conf.default
+controls:
+  incomplete-suppression:
+    file: test/approximation_refinement_t.ml
+    anchor: 'incomplete suppressor'
+    kind: refinement-mutation
+  deny-overrides:
+    file: test/approximation_refinement_t.ml
+    anchor: 'deny-overrides'
+    kind: refinement-mutation
+  default-fallthrough:
+    file: test/approximation_refinement_t.ml
+    anchor: 'default-Allow fallthrough'
+    kind: refinement-mutation
+  mixed-priority-shapes:
+    file: test/approximation_refinement_t.ml
+    anchor: 'mixed priority shapes'
+    kind: refinement-mutation
+features:
+  - code: literal-path-prefix
+    class: modeled
+    rule: Modern literal paths are prefixes, not inferred regexes; explicit legacy formats migrate before lowering.
+    sources: [traditional, compatible, legacy-paths]
+    lowering: [connectors/kong/parse.ml, connectors/kong/fragment.ml, connectors/kong/lower.ml]
+    approximation: exact
+    regressions: [test/path_semantics_t.ml, test/path_normalization_t.ml]
+    evidence: modeled-samples
+    probes:
+      - {matrix: paths, name: literal-long, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: paths, name: literal-plus-present, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: paths, name: literal-plus-not-quantifier, class: exact, flavors: [traditional, traditional_compatible]}
+    controls: []
+    gaps: ['Finite literal samples; legacy migration has source-derived local regressions, not live matrix coverage. No feature-specific mutation control.']
+  - code: normalized-request-path
+    class: modeled
+    rule: Reason over normalized request paths; reject unsupported literal route forms instead of changing their meaning.
+    sources: [normalization, legacy-paths]
+    lowering: [connectors/kong/path_normalization.ml, connectors/kong/validate.ml, connectors/kong/lower.ml]
+    approximation: exact
+    regressions: [test/path_normalization_t.ml, test/path_semantics_t.ml]
+    evidence: source-only
+    probes: []
+    controls: []
+    gaps: ['Local normalization and SMT-domain regressions are not an independent live raw-path normalization matrix. Percent/dot/slash interactions need additional target samples.']
+  - code: regular-path-regex
+    class: modeled
+    rule: Only the bounded shared character language is translated; runtime matching remains incomplete even for accepted syntax.
+    sources: [traditional, compatible]
+    lowering: [connectors/kong/regex_boundary.ml, connectors/kong/fragment.ml, connectors/kong/lower.ml]
+    approximation: may-must
+    regressions: [test/regex_boundary_t.ml, test/regex_agree.ml, test/approximation_refinement_t.ml]
+    evidence: modeled-samples
+    probes:
+      - {matrix: paths, name: escaped-dot-literal, class: conservative, flavors: [traditional, traditional_compatible]}
+      - {matrix: paths, name: escaped-dot-not-wildcard, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: paths, name: regex-prefix-suffix, class: conservative, flavors: [traditional, traditional_compatible]}
+    controls: [incomplete-suppression]
+    gaps: ['regex_agree compares two readings of Soundcheck syntax, not a target-compatible independent oracle. Target samples do not exhaust the accepted regex language or engine resource failures.']
+  - code: http-method
+    class: modeled
+    rule: Route method membership filters selection before access plugins.
+    sources: [traditional, compatible]
+    lowering: [connectors/kong/lower.ml]
+    approximation: exact
+    regressions: [test/functionality_t.ml, test/equivalence_t.ml]
+    evidence: modeled-samples
+    probes:
+      - {matrix: mixed, name: method-category, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: mixed, name: method-fallback, class: exact, flavors: [traditional, traditional_compatible]}
+    controls: []
+    gaps: ['GET/POST samples do not cover every valid method or interacting criterion category. No feature-specific mutation control.']
+  - code: lowercase-host
+    class: modeled
+    rule: Exact lowercase host predicates without explicit route ports are modeled; uncertain host forms use separate bounds.
+    sources: [traditional, compatible, request-fields]
+    lowering: [connectors/kong/lower.ml]
+    approximation: exact
+    regressions: [test/regex_agree.ml, test/approximation_t.ml]
+    evidence: modeled-samples
+    probes:
+      - {matrix: mixed, name: host-category, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: mixed, name: host-fallback, class: exact, flavors: [traditional, traditional_compatible]}
+    controls: []
+    gaps: ['Finite host samples; explicit/effective ports and uppercase route hosts are not promoted to exact coverage. No feature-specific mutation control.']
+  - code: exact-header-match
+    class: modeled
+    rule: Exact header names and values are case-insensitive membership predicates; missing values do not match.
+    sources: [traditional, compatible]
+    lowering: [connectors/kong/lower.ml, core/ir.ml]
+    approximation: exact
+    regressions: [test/header_routing_t.ml]
+    evidence: modeled-samples
+    probes:
+      - {matrix: mixed, name: header-category, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: mixed, name: header-fallback, class: exact, flavors: [traditional, traditional_compatible]}
+    controls: []
+    gaps: ['Case variation and repeated header values have local coverage but no dedicated live probes here. No feature-specific mutation control.']
+  - code: http-https-protocol
+    class: modeled
+    rule: HTTP subsystem route selection and HTTPS-only rejection are distinct from individual plugin protocols.
+    sources: [traditional, compatible, request-phases]
+    lowering: [connectors/kong/lower.ml]
+    approximation: exact
+    regressions: [test/sni_routing_t.ml]
+    evidence: modeled-samples
+    probes:
+      - {matrix: mixed, name: https-only, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: mixed, name: https-only-http-deny, class: exact, flavors: [traditional, traditional_compatible]}
+    controls: []
+    gaps: ['HTTP/HTTPS samples do not cover stream routing or production TLS/listener configuration. No feature-specific mutation control.']
+  - code: exact-sni
+    class: modeled
+    rule: Exact SNI constrains HTTPS selection; HTTP ignores the SNI predicate and may then be rejected by protocol.
+    sources: [traditional, compatible, request-phases]
+    lowering: [connectors/kong/lower.ml]
+    approximation: exact
+    regressions: [test/sni_routing_t.ml]
+    evidence: modeled-samples
+    probes:
+      - {matrix: mixed, name: sni-exact, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: mixed, name: sni-mismatch, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: mixed, name: sni-http-bypass, class: exact, flavors: [traditional, traditional_compatible]}
+    controls: []
+    gaps: ['Certificate selection, TLS identity, and wildcard SNI are not established by these exact-name probes. No feature-specific mutation control.']
+  - code: shared-route-priority
+    class: modeled
+    rule: Suppress a candidate only where the shared criterion order and complete higher match justify it for both routers.
+    sources: [traditional, compatible]
+    lowering: [connectors/kong/lower.ml, core/ir.ml]
+    approximation: may-must
+    regressions: [test/approximation_refinement_t.ml, test/header_routing_t.ml, test/semantic_hardening_t.ml]
+    evidence: modeled-samples
+    probes:
+      - {matrix: paths, name: literal-long, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: paths, name: regex-priority-high, class: conservative, flavors: [traditional, traditional_compatible]}
+      - {matrix: category, name: category-overlap, class: conservative, flavors: [traditional, traditional_compatible]}
+    controls: [incomplete-suppression, mixed-priority-shapes]
+    gaps: ['Independent finite refinement mutations exercise abstract order rules, not the completeness of the Kong-to-priority lowering. Detailed heterogeneous ordering remains conservative.']
+  - code: known-auth-plugins
+    class: modeled
+    rule: Abstract credential validity determines authentication requirement after effective plugin selection, subject to explicit bypass/fallback rules.
+    sources: [key-auth, key-auth-defaults, basic-auth, jwt, plugin-selection]
+    lowering: [connectors/kong/plugin_support.ml, connectors/kong/lower.ml]
+    approximation: exact
+    regressions: [test/auth_plugin_bypass_t.ml, test/functionality_t.ml, test/global_plugin_t.ml]
+    evidence: modeled-samples
+    probes:
+      - {matrix: auth, name: global-missing-key, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: auth, name: global-invalid-key, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: auth, name: global-valid-key, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: oss-auth, name: basic-missing, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: oss-auth, name: basic-invalid, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: oss-auth, name: basic-valid, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: oss-auth, name: jwt-missing, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: oss-auth, name: jwt-invalid, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: oss-auth, name: jwt-valid, class: exact, flavors: [traditional, traditional_compatible]}
+    controls: []
+    gaps: ['Only singleton Key Auth, Basic Auth, and JWT credentials are sampled. The ten-plugin recognized list also contains untested OSS and commercial plugins; proprietary semantics are not independently sourced here.', 'No credential-store, expiry, provider availability, Consumer policy, multi-plugin identity, or feature-specific mutation coverage is claimed.']
+  - code: auth-preflight-bypass
+    class: modeled
+    rule: Key Auth and JWT can bypass OPTIONS when run_on_preflight is false; ordinary requests still authenticate.
+    sources: [key-auth, key-auth-defaults, jwt]
+    lowering: [connectors/kong/lower.ml]
+    approximation: exact
+    regressions: [test/auth_plugin_bypass_t.ml]
+    evidence: modeled-samples
+    probes:
+      - {matrix: auth, name: global-default-preflight-auth, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: auth, name: preflight-bypasses-auth, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: auth, name: preflight-get-requires-auth, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: oss-auth, name: jwt-default-preflight-auth, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: oss-auth, name: jwt-preflight-bypass, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: oss-auth, name: jwt-bypass-get-still-authenticates, class: exact, flavors: [traditional, traditional_compatible]}
+    controls: []
+    gaps: ['Finite singleton plugin samples; cross-plugin and fallback interactions remain partial. No feature-specific mutation control.']
+  - code: general-request-rate-limit
+    class: modeled
+    rule: General request-rate plugin presence can satisfy the coverage property but cannot guarantee requests survive runtime quotas.
+    sources: [rate-limiting, plugin-selection]
+    lowering: [connectors/kong/plugin_support.ml, connectors/kong/lower.ml]
+    approximation: may-must
+    regressions: [test/rate_limit_coverage_t.ml, test/global_plugin_t.ml]
+    evidence: source-only
+    probes: []
+    controls: []
+    gaps: ['No live quota/exhaustion, datastore-failure or rate-limiting-advanced commercial execution coverage. OSS handler is a source basis, not evidence for every commercial behavior. No feature-specific mutation control.']
+  - code: ipv4-ip-restriction
+    class: modeled
+    rule: Check deny before nonempty allow lists over the client IP derived by Kong; a failing selected guard does not reroute.
+    sources: [ip-restriction, plugin-selection, config-defaults]
+    lowering: [connectors/kong/lower.ml, core/cidr.ml]
+    approximation: exact
+    regressions: [test/cidr_t.ml, test/network_restricted_t.ml, test/request_termination_t.ml]
+    evidence: modeled-samples
+    probes:
+      - {matrix: ip, name: global-allow, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: ip, name: global-deny-overlap, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: ip, name: global-outside, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: ip, name: global-low-boundary, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: ip, name: global-high-boundary, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: ip, name: global-adjacent-outside, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: ip, name: zero-prefix-low, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: ip, name: zero-prefix-high, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: ip, name: single-host-match, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: ip, name: single-host-left, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: ip, name: single-host-right, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: ip, name: deny-only-block, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: ip, name: deny-only-outside, class: exact, flavors: [traditional, traditional_compatible]}
+    controls: []
+    gaps: ['Fixture-only trusted real-IP setup supplies synthetic IPv4 inputs; it does not verify a production source-integrity boundary. IPv6 and all CIDR combinations remain outside these samples. No feature-specific mutation control.']
+  - code: request-termination
+    class: modeled
+    rule: Unconditional request-termination denies upstream access at its access phase, after higher-priority authentication and IP restrictions.
+    sources: [request-termination, key-auth, ip-restriction, plugin-selection]
+    lowering: [connectors/kong/lower.ml]
+    approximation: exact
+    regressions: [test/request_termination_t.ml, test/global_plugin_t.ml]
+    evidence: modeled-samples
+    probes:
+      - {matrix: auth, name: auth-before-termination, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: auth, name: termination-after-auth, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: termination, name: global-termination, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: termination, name: route-unconditional-overrides-service, class: exact, flavors: [traditional, traditional_compatible]}
+    controls: []
+    gaps: ['The abstraction concerns upstream allowance, not response body/echo semantics. Conditional triggers have a separate conservative row. No feature-specific mutation control.']
+  - code: global-plugin-scope
+    class: modeled
+    rule: For each plugin name select enabled combined, route, service, then global configuration; disabled instances do not hide active fallback.
+    sources: [plugin-selection]
+    lowering: [connectors/kong/parse.ml, connectors/kong/lower.ml]
+    approximation: exact
+    regressions: [test/global_plugin_t.ml, test/request_termination_t.ml]
+    evidence: modeled-samples
+    probes:
+      - {matrix: auth, name: service-overrides-global, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: auth, name: service-does-not-run-global, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: auth, name: route-overrides-service, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: auth, name: disabled-route-keeps-global, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: ip, name: service-rejects-global, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: ip, name: disabled-route-keeps-service, class: exact, flavors: [traditional, traditional_compatible]}
+    controls: []
+    gaps: ['Samples cover selected Key Auth/IP/termination configurations, not every plugin or Consumer-dependent priority. No feature-specific mutation control.']
+  - code: plugin-subsystem
+    class: modeled
+    rule: Enabled plugin protocols activate HTTP or stream subsystem execution rather than filtering each HTTP request scheme.
+    sources: [plugin-selection, plugins]
+    lowering: [connectors/kong/plugin_support.ml, connectors/kong/lower.ml]
+    approximation: exact
+    regressions: [test/approximation_t.ml]
+    evidence: source-only
+    probes: []
+    controls: []
+    gaps: ['Stream-only plugin exclusion has a source-derived local negative regression; no dedicated HTTP/HTTPS plugin-protocol live matrix or feature-specific mutation control.']
+  - code: disabled-service
+    class: modeled
+    rule: Disabled services and their routes cannot suppress enabled routing alternatives.
+    sources: [request-phases, services]
+    lowering: [connectors/kong/parse.ml, connectors/kong/lower.ml]
+    approximation: exact
+    regressions: [test/approximation_t.ml, test/parse_t.ml]
+    evidence: source-only
+    probes: []
+    controls: []
+    gaps: ['Source-derived disabled-service fallback regression is local only. No live disabled-service matrix or feature-specific mutation control.']
+  - code: root-route-service-plugin-scope
+    class: modeled
+    rule: Resolve root string route/service references and prefer combined scope over individual route, service and global scopes.
+    sources: [plugin-selection, plugins, declarative]
+    lowering: [connectors/kong/parse.ml, connectors/kong/validate.ml, connectors/kong/lower.ml]
+    approximation: exact
+    regressions: [test/global_plugin_t.ml]
+    evidence: modeled-samples
+    probes:
+      - {matrix: ip, name: combined-overrides-route, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: ip, name: combined-rejects-route, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: ip, name: combined-rejects-service, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: ip, name: disabled-combined-keeps-route, class: exact, flavors: [traditional, traditional_compatible]}
+    controls: []
+    gaps: ['Combined scope is sampled with IP restriction, not every recognized plugin. Consumer and non-string relationship resolution remain unsupported. No feature-specific mutation control.']
+  - code: top-level-route
+    class: modeled
+    rule: Resolve top-level string service references; a selected route without a service cannot reach an upstream.
+    sources: [routes, declarative, request-phases]
+    lowering: [connectors/kong/parse.ml, connectors/kong/validate.ml, connectors/kong/lower.ml]
+    approximation: exact
+    regressions: [test/top_level_route_t.ml]
+    evidence: modeled-samples
+    probes:
+      - {matrix: mixed, name: service-less, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: mixed, name: default-deny, class: exact, flavors: [traditional, traditional_compatible]}
+    controls: [deny-overrides]
+    gaps: ['The live sample covers selected no-service denial, not every string reference or tied alternative. Refinement mutation guards aggregation generally, not parser resolution.']
+  - code: default-admin-ports
+    class: modeled
+    rule: Recognize normalized service targets on default Admin API ports 8001/8444, including explicit target fields and URL shorthand precedence.
+    sources: [services, config-defaults]
+    lowering: [connectors/kong/parse.ml, connectors/kong/lower.ml]
+    approximation: exact
+    regressions: [test/semantic_hardening_t.ml]
+    evidence: source-only
+    probes: []
+    controls: []
+    gaps: ['Port recognition is a documented heuristic, not discovery of actual Admin listener deployment or every internal admin endpoint. Local source-derived regression only; no feature-specific mutation control.']
+  - code: default-deny
+    class: modeled
+    rule: No selected route denies; a selected route with a failing guard denies instead of falling through to another route or policy default.
+    sources: [traditional, compatible, request-phases]
+    lowering: [connectors/kong/lower.ml, core/ir.ml]
+    approximation: exact
+    regressions: [test/approximation_t.ml, test/approximation_refinement_t.ml]
+    evidence: modeled-samples
+    probes:
+      - {matrix: mixed, name: default-deny, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: auth, name: global-missing-key, class: exact, flavors: [traditional, traditional_compatible]}
+    controls: [default-fallthrough, deny-overrides]
+    gaps: ['Finite target probes and abstract refinement mutations do not establish every parser/lowering path to fallthrough.']
+  - code: route-created-at-tie
+    class: conservative
+    rule: Unavailable creation/order information cannot justify a unique winning route.
+    sources: [traditional, compatible, routes]
+    lowering: [connectors/kong/lower.ml, core/ir.ml]
+    approximation: may-must
+    regressions: [test/approximation_t.ml, test/approximation_refinement_t.ml, test/equivalence_t.ml]
+    evidence: source-only
+    probes: []
+    controls: [deny-overrides]
+    gaps: ['No dedicated creation-order target fixture. Abstract tie bounds are tested independently but do not verify target timestamp ordering.']
+  - code: shared-route-order
+    class: conservative
+    rule: Keep every possible winner when reducer/category behavior differs or shared ordering is not established.
+    sources: [traditional, compatible]
+    lowering: [connectors/kong/lower.ml, core/ir.ml]
+    approximation: may-must
+    regressions: [test/approximation_t.ml, test/approximation_refinement_t.ml, test/header_routing_t.ml]
+    evidence: modeled-samples
+    probes:
+      - {matrix: reducer, name: reducer-get, class: conservative, flavors: [traditional, traditional_compatible]}
+      - {matrix: reducer, name: reducer-post, class: conservative, flavors: [traditional, traditional_compatible]}
+      - {matrix: category, name: category-overlap, class: conservative, flavors: [traditional, traditional_compatible]}
+    controls: [deny-overrides, incomplete-suppression, mixed-priority-shapes]
+    gaps: ['Different target identities are sampled for known reducer/category interactions; the retained bound is not an exact prediction or a proof of all heterogeneous orders.']
+  - code: regex-match-runtime
+    class: conservative
+    rule: Regex engine resource failure can remove a target match, so regex candidates never suppress alternatives or establish definite allowance.
+    sources: [traditional, compatible]
+    lowering: [connectors/kong/lower.ml, core/ir.ml]
+    approximation: may-must
+    regressions: [test/regex_boundary_t.ml, test/approximation_t.ml, test/approximation_refinement_t.ml]
+    evidence: modeled-samples
+    probes:
+      - {matrix: paths, name: regex-over-prefix, class: conservative, flavors: [traditional, traditional_compatible]}
+      - {matrix: paths, name: regex-priority-low, class: conservative, flavors: [traditional, traditional_compatible]}
+    controls: [incomplete-suppression]
+    gaps: ['Samples exercise conservative successful matches, not forced engine exhaustion. Refinement controls validate removal of incomplete matches abstractly.']
+  - code: rate-limit-runtime
+    class: conservative
+    rule: Runtime quota state may reject a matched request; plugin presence never establishes definite allowance.
+    sources: [rate-limiting]
+    lowering: [connectors/kong/lower.ml]
+    approximation: may-must
+    regressions: [test/kong_assurance_t.ml, test/rate_limit_coverage_t.ml]
+    evidence: source-only
+    probes: []
+    controls: []
+    gaps: ['Runtime quotas, clocks, shared stores and failure behavior are intentionally not exercised by this deterministic matrix. Listed tests cover the profile declaration and coverage metadata, not a dedicated quota/definite-allow lowering regression. No commercial runtime or feature-specific mutation coverage.']
+  - code: route-header-regex
+    class: conservative
+    rule: Mixed/singleton regex header semantics differ by router; omit uncertain matching constraints and retain competing routes.
+    sources: [traditional, compatible]
+    lowering: [connectors/kong/lower.ml]
+    approximation: may-must
+    regressions: [test/header_routing_t.ml, test/approximation_refinement_t.ml]
+    evidence: modeled-samples
+    probes:
+      - {matrix: mixed, name: mixed-header-literal, class: conservative, flavors: [traditional, traditional_compatible]}
+      - {matrix: mixed, name: mixed-header-pattern, class: conservative, flavors: [traditional, traditional_compatible]}
+      - {matrix: mixed, name: mixed-header-negative, class: conservative, flavors: [traditional, traditional_compatible]}
+    controls: [incomplete-suppression]
+    gaps: ['One mixed header list samples the flavor difference, not all regex or repeated-value interactions.']
+  - code: wildcard-sni
+    class: conservative
+    rule: Wildcard SNI cannot establish a complete shared match or suppress another route.
+    sources: [traditional, compatible]
+    lowering: [connectors/kong/lower.ml]
+    approximation: may-must
+    regressions: [test/sni_routing_t.ml, test/approximation_refinement_t.ml]
+    evidence: source-only
+    probes: []
+    controls: [incomplete-suppression]
+    gaps: ['No live wildcard-SNI disagreement fixture; existing exact-SNI observations cannot establish wildcard behavior.']
+  - code: route-stream-match
+    class: conservative
+    rule: Source/destination criteria outside the HTTP request abstraction leave route matching incomplete and ordering incomparable.
+    sources: [traditional, compatible, routes]
+    lowering: [connectors/kong/lower.ml]
+    approximation: may-must
+    regressions: [test/parse_t.ml, test/kong_assurance_t.ml, test/approximation_refinement_t.ml]
+    evidence: source-only
+    probes: []
+    controls: [incomplete-suppression]
+    gaps: ['No stream listener or source/destination routing target matrix; HTTP client-IP restriction probes test a different semantic feature. Listed local tests cover parser shape, profile declaration and generic incomplete-match bounds, not every stream-criterion lowering combination.']
+  - code: uppercase-host
+    class: conservative
+    rule: Lowercased request-host handling does not justify exact selection from uppercase route predicates across both flavors.
+    sources: [traditional, compatible, request-fields]
+    lowering: [connectors/kong/lower.ml]
+    approximation: may-must
+    regressions: [test/kong_assurance_t.ml, test/approximation_refinement_t.ml]
+    evidence: source-only
+    probes: []
+    controls: [incomplete-suppression]
+    gaps: ['No dedicated uppercase-route-host target sample; lowercased exact-host observations are not interchangeable.']
+  - code: wildcard-host
+    class: conservative
+    rule: Wildcard host behavior, including empty wildcard components, is a shared upper bound rather than exact selection.
+    sources: [traditional, compatible]
+    lowering: [connectors/kong/lower.ml]
+    approximation: may-must
+    regressions: [test/approximation_t.ml, test/regex_agree.ml, test/approximation_refinement_t.ml]
+    evidence: modeled-samples
+    probes:
+      - {matrix: hosts, name: empty-wildcard-prefix, class: conservative, flavors: [traditional, traditional_compatible]}
+      - {matrix: hosts, name: empty-wildcard-suffix, class: conservative, flavors: [traditional, traditional_compatible]}
+    controls: [incomplete-suppression]
+    gaps: ['Finite empty-wildcard examples do not exhaust wildcard/port/case combinations; regex_agree is model-internal agreement.']
+  - code: host-port
+    class: conservative
+    rule: An explicit route host port can match the target effective destination port even when absent from raw Host; do not narrow possible allowance by raw Host alone.
+    sources: [traditional, compatible, request-fields, request-phases]
+    lowering: [connectors/kong/lower.ml]
+    approximation: may-must
+    regressions: [test/approximation_t.ml, test/approximation_refinement_t.ml]
+    evidence: modeled-samples
+    probes:
+      - {matrix: hosts, name: default-host-port, class: conservative, flavors: [traditional, traditional_compatible]}
+    controls: [incomplete-suppression]
+    gaps: ['The fixture pins port_maps; arbitrary deployed destination ports are absent from the IR and not verified.']
+  - code: invalid-ip-cidr
+    class: conservative
+    rule: Unknown restriction entries cannot narrow may-allow as if absent; they cannot establish required definite access.
+    sources: [ip-restriction]
+    lowering: [connectors/kong/lower.ml, core/cidr.ml]
+    approximation: may-must
+    regressions: [test/network_restricted_t.ml, test/kong_assurance_t.ml, test/cidr_t.ml]
+    evidence: source-only
+    probes: []
+    controls: []
+    gaps: ['Unknown includes IPv6 entries and target-invalid forms; no live mixed-known/unknown CIDR matrix or feature-specific mutation coverage. Listed local tests cover parsing, assurance and known-IP contracts, not a dedicated mixed-unknown lowering regression. IPv4 samples do not cover this boundary.']
+  - code: conditional-request-termination
+    class: conservative
+    rule: A configured trigger may be present in headers or query; unresolved presence keeps possible allowance but cannot prove required access.
+    sources: [request-termination]
+    lowering: [connectors/kong/lower.ml]
+    approximation: may-must
+    regressions: [test/request_termination_t.ml, test/approximation_t.ml]
+    evidence: modeled-samples
+    probes:
+      - {matrix: termination, name: route-trigger-absent, class: conservative, flavors: [traditional, traditional_compatible]}
+      - {matrix: termination, name: route-trigger-present, class: conservative, flavors: [traditional, traditional_compatible]}
+      - {matrix: termination, name: service-trigger-absent, class: conservative, flavors: [traditional, traditional_compatible]}
+      - {matrix: termination, name: service-trigger-present, class: conservative, flavors: [traditional, traditional_compatible]}
+      - {matrix: termination, name: auth-rejects-before-trigger, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: termination, name: auth-valid-triggered, class: conservative, flavors: [traditional, traditional_compatible]}
+      - {matrix: termination, name: ip-rejects-before-trigger, class: exact, flavors: [traditional, traditional_compatible]}
+      - {matrix: termination, name: ip-allowed-triggered, class: conservative, flavors: [traditional, traditional_compatible]}
+    controls: []
+    gaps: ['Header absence/presence and earlier definite denials are sampled; query triggers remain an explicit gap. No feature-specific mutation control.']
+  - code: auth-anonymous-fallback
+    class: conservative
+    rule: An anonymous Consumer fallback may forward invalid or missing credentials without making that request authenticated in the abstraction.
+    sources: [key-auth, key-auth-defaults]
+    lowering: [connectors/kong/parse.ml, connectors/kong/lower.ml]
+    approximation: may-must
+    regressions: [test/auth_plugin_bypass_t.ml]
+    evidence: modeled-samples
+    probes:
+      - {matrix: auth, name: anonymous-fallback-missing-key, class: conservative, flavors: [traditional, traditional_compatible]}
+      - {matrix: auth, name: anonymous-fallback-invalid-key, class: conservative, flavors: [traditional, traditional_compatible]}
+      - {matrix: auth, name: anonymous-fallback-valid-key, class: conservative, flavors: [traditional, traditional_compatible]}
+    controls: []
+    gaps: ['Only Key Auth fallback is sampled; Consumer-scoped policy, cross-plugin fallback identity and commercial implementations are not modeled. No feature-specific mutation control.']
+  - code: response-rate-limit-dependency
+    class: conservative
+    rule: Response rate limiting depends on upstream usage headers and does not establish general request-rate coverage.
+    sources: [response-rate-limiting]
+    lowering: [connectors/kong/plugin_support.ml, connectors/kong/lower.ml]
+    approximation: may-must
+    regressions: [test/rate_limit_coverage_t.ml]
+    evidence: source-only
+    probes: []
+    controls: []
+    gaps: ['No upstream usage-header/runtime exhaustion target matrix or feature-specific mutation control. Local tests cover refusal to infer general request coverage.']
+  - code: graphql-rate-limit-scope
+    class: conservative
+    rule: Soundcheck does not infer general HTTP request-rate coverage from a GraphQL-specific plugin name.
+    sources: [plugins, plugin-selection]
+    lowering: [connectors/kong/plugin_support.ml, connectors/kong/lower.ml]
+    approximation: may-must
+    regressions: [test/rate_limit_coverage_t.ml]
+    evidence: source-only
+    probes: []
+    controls: []
+    gaps: ['Pinned OSS references establish plugin infrastructure only, not proprietary GraphQL implementation semantics. No commercial source/execution, query-cost model or feature-specific mutation coverage.']
+  - code: unsupported-path-regex
+    class: unsupported
+    rule: Reject the whole config when any path regex leaves the bounded shared language; target observations are not model agreement.
+    sources: [traditional, compatible]
+    lowering: [connectors/kong/regex_boundary.ml, connectors/kong/fragment.ml]
+    approximation: reject
+    regressions: [test/regex_boundary_t.ml, test/regex_agree.ml, test/kong_assurance_t.ml]
+    evidence: boundary-samples
+    probes:
+      - {matrix: boundaries, name: unicode-one, class: unsupported, flavors: [traditional, traditional_compatible]}
+      - {matrix: boundaries, name: final-newline, class: unsupported, flavors: [traditional, traditional_compatible]}
+      - {matrix: boundaries, name: alternate-second, class: unsupported, flavors: [traditional, traditional_compatible]}
+    controls: []
+    gaps: ['Whole-config boundary samples do not prove individual regex rejection causes or cover every rejected syntax/resource limit. No feature-specific mutation control.']
+  - code: unrecognized-plugin
+    class: unsupported
+    rule: An active plugin outside the modeled list may alter decisions or targets, so whole-config verification is unknown.
+    sources: [plugin-selection, plugins]
+    lowering: [connectors/kong/plugin_support.ml, connectors/kong/fragment.ml]
+    approximation: reject
+    regressions: [test/approximation_t.ml, test/kong_assurance_t.ml]
+    evidence: source-only
+    probes: []
+    controls: []
+    gaps: ['Local boundary checks only; no arbitrary custom-plugin target execution is implied or required. No feature-specific mutation control.']
+  - code: nested-plugin-reference
+    class: unsupported
+    rule: Explicit relationships on a nested plugin cannot be silently treated as its containing route or service scope.
+    sources: [plugins, declarative, plugin-selection]
+    lowering: [connectors/kong/parse.ml, connectors/kong/fragment.ml]
+    approximation: reject
+    regressions: [test/approximation_t.ml, test/parse_t.ml]
+    evidence: source-only
+    probes: []
+    controls: []
+    gaps: ['No live nested relationship matrix; local parser/rejection cases do not validate every target identifier resolution. No feature-specific mutation control.']
+  - code: consumer-scoped-plugin
+    class: unsupported
+    rule: Consumer and Consumer-group scoped plugin policy requires richer identity than anonymous/authenticated, so verification rejects it.
+    sources: [plugins, plugin-selection]
+    lowering: [connectors/kong/parse.ml, connectors/kong/fragment.ml]
+    approximation: reject
+    regressions: [test/global_plugin_t.ml, test/approximation_t.ml]
+    evidence: source-only
+    probes: []
+    controls: []
+    gaps: ['Ordinary synthetic credential Consumers in auth fixtures do not establish Consumer-scoped policy semantics. No live scoped-policy boundary matrix or feature-specific mutation control.']
+  - code: non-string-plugin-reference
+    class: unsupported
+    rule: Root plugin relationships outside supported string references are not resolved and fail closed.
+    sources: [plugins, declarative]
+    lowering: [connectors/kong/parse.ml, connectors/kong/fragment.ml]
+    approximation: reject
+    regressions: [test/global_plugin_t.ml, test/parse_t.ml]
+    evidence: source-only
+    probes: []
+    controls: []
+    gaps: ['No live object/id-reference resolution coverage; local tests establish only the declared rejection boundary. No feature-specific mutation control.']
+  - code: non-string-route-service-reference
+    class: unsupported
+    rule: Top-level route service references outside supported strings are not resolved and cannot produce a proof.
+    sources: [routes, declarative]
+    lowering: [connectors/kong/parse.ml, connectors/kong/fragment.ml]
+    approximation: reject
+    regressions: [test/top_level_route_t.ml, test/global_plugin_t.ml, test/parse_t.ml]
+    evidence: source-only
+    probes: []
+    controls: []
+    gaps: ['No live object/id-reference matrix; local rejection does not claim the target rejects every such representation. No feature-specific mutation control.']

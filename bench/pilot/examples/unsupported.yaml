@@ -1,0 +1,9 @@
+# An unmodeled plugin must remain unknown, not an inferred open route or proof.
+services:
+  - name: admin-api
+    routes:
+      - name: admin-get
+        paths: [/admin]
+        methods: [GET]
+        plugins:
+          - name: synthetic-unmodeled-plugin

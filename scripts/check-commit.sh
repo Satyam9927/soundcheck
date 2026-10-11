@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   printf '%s\n' \
     'Usage: bash scripts/check-commit.sh [revision]' \
-    'Build and force regression tests in a clean worktree of a commit (default: HEAD).' \
+    'Build and force sequential tests in a clean worktree of a commit (default: HEAD).' \
     'Uncommitted edits are excluded. Does not commit, push, or run Docker.' \
     'Uses the existing opam environment. Retains the worktree on failure.'
 }
@@ -32,6 +32,9 @@ for soundcheck_command in dune z3; do
     exit 1
   fi
 done
+soundcheck_dune_version="$(dune --version)"
+soundcheck_z3_version="$(z3 -version)"
+printf 'Toolchain: Dune %s; %s\n' "$soundcheck_dune_version" "$soundcheck_z3_version"
 
 soundcheck_temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/soundcheck-check.XXXXXX")"
 soundcheck_worktree="$soundcheck_temp_dir/worktree"
@@ -50,6 +53,7 @@ cleanup() {
     exit 1
   fi
   rmdir "$soundcheck_temp_dir"
+  printf 'Clean-worktree regression checks passed for %s.\n' "$soundcheck_commit"
 }
 trap cleanup EXIT
 
@@ -57,5 +61,4 @@ printf 'Checking commit %s; uncommitted edits are excluded.\n' "$soundcheck_comm
 git worktree add --detach "$soundcheck_worktree" "$soundcheck_commit"
 cd "$soundcheck_worktree"
 dune build @all
-dune test --force
-printf 'Clean-worktree regression checks passed for %s.\n' "$soundcheck_commit"
+dune test --force -j 1

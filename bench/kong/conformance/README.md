@@ -6,7 +6,7 @@ HTTP-status expectations. It runs both supported router flavors:
 `traditional` and `traditional_compatible`. Soundcheck's concrete IR evaluator
 supplies possible identities and may/must allowance bounds, not target truth.
 
-The default matrix contains **188 observations: 82 exact, 36 conservative,
+The default matrix contains **282 observations: 160 exact, 52 conservative,
 and 70 unsupported-boundary checks**. These classes are deliberately separate:
 
 - **Exact:** one modeled identity; may and must both equal the target decision.
@@ -31,6 +31,9 @@ or every feature in the assurance profile.
 | category | Cross-flavor category precedence | 2 | 4 | 0 |
 | hosts | Effective ports and empty wildcard matches | 0 | 6 | 0 |
 | boundaries | Unicode, final LF, top-level alternation | 0 | 0 | 16 |
+| ip | IPv4 restrictions, boundaries, effective plugin scopes | 48 | 0 | 0 |
+| termination | Header triggers, scopes, earlier authentication/IP denial | 10 | 16 | 0 |
+| oss-auth | Singleton Basic Auth/JWT credentials and JWT preflight bypass | 20 | 0 | 0 |
 
 The routing fixture retains its original 18 requests and adds nine path probes.
 Because it contains regexes outside the shared supported fragment, its entire
@@ -47,8 +50,11 @@ bash scripts/check.sh conformance
 
 For focused edit loops, `bash bench/kong/conformance/run.sh` accepts `routing`,
 `auth`, `supported` (paths, mixed, reducer, category, hosts), or `boundaries`.
+The additional selectors `ip`, `termination`, and `oss-auth` run their individual
+matrices; `plugins` runs `auth` plus these three new matrices.
 Each selection still runs both flavors. The default `all` and CI run all eight
-matrices; focused runs do not replace the complete conformance gate.
+original matrices plus the three plugin matrices; focused runs do not replace
+the complete conformance gate.
 
 Prerequisites are the existing opam environment with Dune and the `yaml`
 dependency, Z3, curl, and a running Docker daemon. The wrapper does not install
@@ -58,7 +64,7 @@ at a time on a host: it uses fixed container names and localhost ports 18000,
 collision; startup fails and their owner must resolve the conflict.
 
 The Kong image is pinned by version and multi-platform digest. Each flavor uses
-eight sequential containers; at most one harness container runs at a time.
+eleven sequential containers; at most one harness container runs at a time.
 The hosts matrix explicitly pins `port_maps=80:8000,443:8443` so compatible
 routing's advertised destination port does not depend on Docker's published
 port. That destination-port dimension is intentionally absent from the model.
@@ -77,7 +83,7 @@ Docker or validate Kong semantics; the real-container comparisons remain separat
 Rows are pipe-delimited despite the historical `.tsv` filename:
 
 ```text
-name|scheme|method|path|host|sni|principal|headers|decision|route|service|status|model-class|flavors
+name|scheme|method|path|host|sni|principal|headers|decision|route|service|status|model-class|flavors|source-ip
 ```
 
 Use `-` for absent fields and `;` between headers. Literal `|` and `;` inside
@@ -85,14 +91,36 @@ fields are not supported. `flavors` is `both`, `traditional`, or
 `traditional_compatible`; flavor-specific rows encode independently justified
 differences, not outputs blessed after running Soundcheck.
 
+The final field is mandatory. `source-ip` is `-` for matrices without a source-IP
+observation and a canonical dotted-decimal IPv4 address for every `ip` and
+`termination` row. Prefixes, ports, IPv6, leading-zero octets, malformed values,
+omitted source fields, and a source address on an unrelated matrix fail the
+harness. The internal model oracle receives exactly that address; old matrices
+use the irrelevant `0.0.0.0` placeholder. The IP matrices inject the same field
+as `X-Soundcheck-Client-IP`, and their owned loopback containers explicitly set
+`trusted_ips=0.0.0.0/0`, `real_ip_header=X-Soundcheck-Client-IP`, and
+`real_ip_recursive=off`. This deliberately synthetic trust setup tests an
+externally supplied derived-client-IP assumption. It is **not** a production
+trust configuration or evidence that a deployment prevents source spoofing.
+
+The reserved source header cannot be supplied in authored headers. Probe header
+names are restricted to ASCII letters, digits, hyphens and underscores. Request
+paths containing literal `?` or `#` are rejected: the harness does not yet
+separate a request target from the modeled normalized path. Header-trigger
+termination is covered; query-trigger execution remains an explicit gap.
+
 The principal is explicitly `anonymous` or `authenticated`. Missing/invalid
 keys, including keys sent under the wrong effective plugin's header name, are
 anonymous; a valid key at the effective plugin is authenticated. An anonymous
 Consumer fallback does not authenticate failed credentials. These labels come
 from the authored fixtures and target semantics, never the model verdict or
-HTTP response. All keys and identities in `auth.yaml` are public synthetic data.
+HTTP response. All credentials and identities in the auth fixtures are public
+synthetic data. The standalone Basic Auth and JWT fixtures do not combine
+providers; the fixed HS256 JWT has no expiry/not-before claim requirement.
 This tests several credential outcomes' abstraction; Soundcheck does not verify
 credential stores, expiry, identity-provider availability, or Consumer policy.
+The Basic/JWT invalid samples are malformed credentials, not well-formed wrong
+passwords or signatures; those rejection branches remain a coverage gap.
 
 `allow` means Kong reached an upstream, observed via the upstream-latency
 header, not HTTP 2xx. Some routing suffixes produce an upstream 404; `-` disables
@@ -105,10 +133,16 @@ The internal oracle protocol reports bounds and candidate identities or
 incomplete match includes a no-route candidate unless another complete match
 guarantees selection. It delegates selection and allowance to the shared IR.
 
-The 21 Docker-free checks include wrong model-only, target-only, mutually
+The 35 Docker-free harness checks include wrong model-only, target-only, mutually
 agreeing and HTTP-status observations; oracle errors; malformed/duplicate
 candidates; missing probes; improper class substitution; identity escape; and
-both may/must bound escapes. These test harness enforcement, not Kong semantics.
+both may/must bound escapes. Source controls also reject malformed/missing
+addresses, reserved headers, query-as-path and invalid matrix selection; targeted
+mutants omit source injection, substitute the oracle source, or change the
+trusted real-IP header. A focused selector must run both and only the selected
+matrix's router instances. Separately, 22 Docker-free oracle checks cover
+address parsing and propagation. These test protocol/model enforcement, not
+independent Kong semantics.
 
 ## Source basis
 
@@ -131,6 +165,20 @@ Kong is pinned to 3.9.3, source commit
   and [request termination](https://github.com/Kong/kong/blob/a643428bc4d5397152164a63bcc0f8bc65fce69d/kong/plugins/request-termination/handler.lua):
   route/service/global precedence, disabled-plugin fallthrough and key-auth
   before termination. Distinct header names expose configuration selection.
+- [IP restriction](https://github.com/Kong/kong/blob/a643428bc4d5397152164a63bcc0f8bc65fce69d/kong/plugins/ip-restriction/handler.lua)
+  checks deny before a nonempty allow list over `binary_remote_addr`.
+  [Runtime configuration](https://github.com/Kong/kong/blob/a643428bc4d5397152164a63bcc0f8bc65fce69d/kong.conf.default)
+  documents how trusted peers and the configured real-IP header determine that
+  derived address. Distinct CIDRs expose combined route/service, route, service,
+  global precedence, and disabled-plugin fallthrough.
+- [Conditional termination](https://github.com/Kong/kong/blob/a643428bc4d5397152164a63bcc0f8bc65fce69d/kong/plugins/request-termination/handler.lua)
+  returns early when its trigger is absent from both headers and query. Its
+  priority follows Key Auth and IP restriction. Header-trigger probes check
+  actual allow/deny behavior while retaining the model's conservative bounds;
+  a prior modeled auth/IP denial can still have exact denying bounds.
+- [Basic Auth](https://github.com/Kong/kong/blob/a643428bc4d5397152164a63bcc0f8bc65fce69d/kong/plugins/basic-auth/access.lua)
+  rejects missing/invalid credentials; [JWT](https://github.com/Kong/kong/blob/a643428bc4d5397152164a63bcc0f8bc65fce69d/kong/plugins/jwt/handler.lua)
+  validates a token or follows its configured OPTIONS bypass.
 
 PCRE2 versus the pinned ATC/Rust regex implementation explains the boundary
 fixtures' Unicode, final-LF and anchoring differences. Their target observations
@@ -138,6 +186,13 @@ remain useful even though the shared profile rejects those languages. Literal
 `+` tests use explicit format 3.0; legacy 1.1/2.1 migration has separate source-
 justified regressions. See the [execution plan](../../../docs/plans/2026-10-kong-hardening.md)
 for the narrowed profile, independent refinement oracle, and acceptance record.
+
+Remaining gaps include the rest of the recognized authentication list,
+Enterprise-only plugins, provider/credential availability, expiry behavior,
+Consumer scope and multiple-provider identity semantics; query triggers; and
+runtime rate-limit exhaustion, counters and storage failures. The presence of
+an accepted plugin name is not evidence that this finite OSS matrix exercised
+it. No quota/functionality guarantees or broader v11 claims are added here.
 
 ## CI gate
 

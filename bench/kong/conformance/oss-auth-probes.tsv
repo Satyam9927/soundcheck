@@ -1,0 +1,13 @@
+# name|scheme|method|path|host|sni|principal|headers|decision|route|service|status|model-class|flavors|source-ip
+# JWT is HS256 over {"iss":"soundcheck-fixture"}, with the fixture's public
+# secret, no exp/nbf claims and no clock-dependent validation configuration.
+basic-missing|http|GET|/basic-auth|-|-|anonymous|-|deny|basic-auth|oss-auth-service|401|exact|both|-
+basic-invalid|http|GET|/basic-auth|-|-|anonymous|Authorization:Basic invalid|deny|basic-auth|oss-auth-service|401|exact|both|-
+basic-valid|http|GET|/basic-auth|-|-|authenticated|Authorization:Basic Zml4dHVyZS11c2VyOmZpeHR1cmUtcGFzc3dvcmQ=|allow|basic-auth|oss-auth-service|200|exact|both|-
+basic-options-still-authenticates|http|OPTIONS|/basic-auth|-|-|anonymous|-|deny|basic-auth|oss-auth-service|401|exact|both|-
+jwt-missing|http|GET|/jwt-auth|-|-|anonymous|-|deny|jwt-auth|oss-auth-service|401|exact|both|-
+jwt-invalid|http|GET|/jwt-auth|-|-|anonymous|Authorization:Bearer invalid-token|deny|jwt-auth|oss-auth-service|401|exact|both|-
+jwt-valid|http|GET|/jwt-auth|-|-|authenticated|Authorization:Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzb3VuZGNoZWNrLWZpeHR1cmUifQ.358wcyW-GZcT0If6HcpEdviCEcuAP_VtQyJTKqJVN2s|allow|jwt-auth|oss-auth-service|200|exact|both|-
+jwt-default-preflight-auth|http|OPTIONS|/jwt-auth|-|-|anonymous|-|deny|jwt-auth|oss-auth-service|401|exact|both|-
+jwt-preflight-bypass|http|OPTIONS|/jwt-preflight|-|-|anonymous|-|allow|jwt-preflight|oss-auth-service|-|exact|both|-
+jwt-bypass-get-still-authenticates|http|GET|/jwt-preflight|-|-|anonymous|-|deny|jwt-preflight|oss-auth-service|401|exact|both|-
