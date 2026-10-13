@@ -5,8 +5,8 @@
  (deps
   (source_tree kong/cases)))
 
-; Ad-hoc survey of external decK configs — not a gate, run by hand against a
-; directory of real configs. See the header of survey.ml.
+; Retired scanner: exits with a diagnostic without reading inputs. The explicit
+; frozen-contract evaluation workflow lives in pilot/ instead.
 (executable
  (name survey)
  (modules survey)

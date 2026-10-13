@@ -4,8 +4,8 @@ set -euo pipefail
 usage() {
   printf '%s\n' \
     'Usage: bash scripts/check.sh [fast|full|conformance]' \
-    '  fast         Incremental build and regression tests (default).' \
-    '  full         Build, force regression tests, then real-Kong conformance.' \
+    '  fast         Incremental build and sequential regression tests (default).' \
+    '  full         Build, force sequential tests, then real-Kong conformance.' \
     '  conformance  Pinned real-Kong checks only; serialize runs on this host.' \
     'Uses the existing opam environment; does not install dependencies.' \
     'Full and conformance require Docker, a running daemon, and curl.'
@@ -39,6 +39,9 @@ soundcheck_opam_env="$(opam env)"
 eval "$soundcheck_opam_env"
 require_command dune
 require_command z3
+soundcheck_dune_version="$(dune --version)"
+soundcheck_z3_version="$(z3 -version)"
+printf 'Toolchain: Dune %s; %s\n' "$soundcheck_dune_version" "$soundcheck_z3_version"
 
 if [[ "$soundcheck_mode" != fast ]]; then
   require_command docker
@@ -52,11 +55,11 @@ fi
 case "$soundcheck_mode" in
   fast)
     dune build @all
-    dune test
+    dune test -j 1
     ;;
   full)
     dune build @all
-    dune test --force
+    dune test --force -j 1
     bash bench/kong/conformance/run.sh
     ;;
   conformance)

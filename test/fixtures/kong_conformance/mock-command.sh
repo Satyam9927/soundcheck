@@ -12,13 +12,20 @@ case "${0##*/}" in
     ;;
   kong_model_oracle.exe)
     printf 'oracle %s\n' "$*" >> "$SOUNDCHECK_HARNESS_TEST_LOG"
+    soundcheck_expected_source=0.0.0.0
+    if [[ "$1" == */ip.yaml || "$1" == */termination.yaml ]]; then
+      soundcheck_expected_source=10.1.2.3
+    fi
     case "$SOUNDCHECK_HARNESS_TEST_CASE" in
       oracle-failure) exit 2 ;;
       malformed-model) printf 'supported\tmaybe\tallow\n'; exit 0 ;;
     esac
     case "$5" in
       /fixture-authenticated)
-        [[ "$2" == authenticated && "$8" == fixture-key:valid && "$9" == x-region:us ]]
+        [[ "$2" == authenticated && "$8" == "$soundcheck_expected_source" && "$9" == fixture-key:valid && "${10}" == x-region:us ]] || exit 99
+        ;;
+      /fixture-source)
+        [[ "$2" == anonymous && "$8" == 10.1.2.3 ]] || exit 99
         ;;
       /fixture-routing|/fixture-anonymous|/fixture-conservative|/fixture-conservative-deny|/fixture-unsupported)
         [[ "$2" == anonymous ]] ;;
@@ -61,6 +68,14 @@ case "${0##*/}" in
     printf 'docker %s\n' "$*" >> "$SOUNDCHECK_HARNESS_TEST_LOG"
     case "$1" in
       create)
+        if [[ "$*" == */ip.yaml:* || "$*" == */termination.yaml:* ]]; then
+          [[ "$*" == *KONG_TRUSTED_IPS=0.0.0.0/0* &&
+             "$*" == *KONG_REAL_IP_HEADER=X-Soundcheck-Client-IP* &&
+             "$*" == *KONG_REAL_IP_RECURSIVE=off* ]] || exit 99
+        elif [[ "$*" == *KONG_TRUSTED_IPS* ]]; then
+          echo 'Fixture real-IP trust leaked into an unrelated matrix' >&2
+          exit 99
+        fi
         if [[ "$SOUNDCHECK_HARNESS_TEST_CASE" == collision ]]; then
           echo 'fixture: existing container name conflict' >&2
           exit 125
@@ -93,6 +108,12 @@ case "${0##*/}" in
     if [[ "$*" != *'--connect-timeout 2'* || "$*" != *'--max-time 10'* ]]; then
       echo 'Mock probe expected bounded connection and request timeouts' >&2
       exit 99
+    fi
+    if [[ "$*" == */fixture-source ]]; then
+      [[ "$*" == *'--header X-Soundcheck-Client-IP: 10.1.2.3'* ]] || {
+        echo 'Fixture source IP was not injected unchanged' >&2
+        exit 99
+      }
     fi
     case "$SOUNDCHECK_HARNESS_TEST_CASE" in
       timeout)

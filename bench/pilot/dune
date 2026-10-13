@@ -1,0 +1,27 @@
+(library
+ (name soundcheck_pilot)
+ (wrapped false)
+ (modules pilot)
+ (libraries soundcheck_core soundcheck_kong yaml unix))
+
+(executable
+ (name main)
+ (modules main)
+ (libraries soundcheck_pilot unix))
+
+(test
+ (name pilot_t)
+ (modules pilot_t)
+ (libraries soundcheck_pilot soundcheck_core soundcheck_kong yaml unix))
+
+(executable
+ (name pilot_cli_t)
+ (modules pilot_cli_t)
+ (libraries soundcheck_core soundcheck_kong yaml unix))
+
+(rule
+ (alias runtest)
+ (deps (source_tree examples) ../kong/contracts/admin-get.yaml)
+ (action
+  (run %{exe:pilot_cli_t.exe} %{exe:main.exe} %{exe:../../cli/main.exe} examples
+       %{exe:../survey.exe} %{dep:../kong/contracts/admin-get.yaml})))

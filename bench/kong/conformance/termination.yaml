@@ -1,0 +1,49 @@
+_format_version: "3.0"
+_transform: true
+consumers:
+  - username: termination-user
+    keyauth_credentials:
+      - key: soundcheck-termination-key
+plugins:
+  - name: request-termination
+    config: {status_code: 418}
+services:
+  - name: termination-global-service
+    url: http://127.0.0.1:8001/status
+    routes:
+      - name: termination-global
+        paths: [/termination-global]
+      - name: termination-route-trigger
+        paths: [/termination-route-trigger]
+        plugins:
+          - name: request-termination
+            config: {status_code: 418, trigger: x-stop}
+      - name: termination-route-disabled
+        paths: [/termination-route-disabled]
+        plugins:
+          - name: request-termination
+            enabled: false
+            config: {status_code: 418, trigger: x-stop}
+  - name: termination-service
+    url: http://127.0.0.1:8001/status
+    plugins:
+      - name: request-termination
+        config: {status_code: 418, trigger: x-stop}
+    routes:
+      - name: termination-service-trigger
+        paths: [/termination-service-trigger]
+      - name: termination-route-unconditional
+        paths: [/termination-route-unconditional]
+        plugins:
+          - name: request-termination
+            config: {status_code: 418}
+      - name: termination-auth
+        paths: [/termination-auth]
+        plugins:
+          - name: key-auth
+            config: {key_in_query: false}
+      - name: termination-ip
+        paths: [/termination-ip]
+        plugins:
+          - name: ip-restriction
+            config: {allow: [10.0.0.0/8]}

@@ -30,24 +30,33 @@ soundcheck_test_bin="$soundcheck_test_dir/bin"
 mkdir -p "$soundcheck_test_repo/bench/kong/conformance" \
   "$soundcheck_test_repo/_build/default/bench" "$soundcheck_test_bin"
 cp "$soundcheck_harness_source" "$soundcheck_test_repo/bench/kong/conformance/run.sh"
+# Later negative controls mutate this owned copy, never the read-only input.
+chmod u+w "$soundcheck_test_repo/bench/kong/conformance/run.sh"
 # Dune copies dependencies read-only. Copy each private mock config only once;
 # overwriting a previous copy is both unnecessary and fails in its sandbox.
 cp "$soundcheck_source_dir/kong.yaml" "$soundcheck_test_repo/bench/kong/conformance/"
 # Keep lifecycle expectations independent of the real semantic matrix. These
 # tiny fixture requests test metadata, all three classes, and comparison only.
 printf '%s\n' \
-  'fixture-routing|http|GET|/fixture-routing|-|-|anonymous|-|allow|fixture-route|fixture-service|200|exact|both' \
-  'fixture-authenticated|http|GET|/fixture-authenticated|-|-|authenticated|fixture-key:valid;x-region:us|allow|fixture-route|fixture-service|200|exact|both' \
-  'fixture-anonymous|http|GET|/fixture-anonymous|-|-|anonymous|-|deny|fixture-route|fixture-service|401|exact|both' \
-  'fixture-conservative|http|GET|/fixture-conservative|-|-|anonymous|-|allow|fixture-route|fixture-service|200|conservative|both' \
-  'fixture-conservative-deny|http|GET|/fixture-conservative-deny|-|-|anonymous|-|deny|fixture-route|fixture-service|401|conservative|both' \
-  'fixture-unsupported|http|GET|/fixture-unsupported|-|-|anonymous|-|allow|fixture-route|fixture-service|200|unsupported|both' \
+  'fixture-routing|http|GET|/fixture-routing|-|-|anonymous|-|allow|fixture-route|fixture-service|200|exact|both|-' \
+  'fixture-authenticated|http|GET|/fixture-authenticated|-|-|authenticated|fixture-key:valid;x-region:us|allow|fixture-route|fixture-service|200|exact|both|-' \
+  'fixture-anonymous|http|GET|/fixture-anonymous|-|-|anonymous|-|deny|fixture-route|fixture-service|401|exact|both|-' \
+  'fixture-conservative|http|GET|/fixture-conservative|-|-|anonymous|-|allow|fixture-route|fixture-service|200|conservative|both|-' \
+  'fixture-conservative-deny|http|GET|/fixture-conservative-deny|-|-|anonymous|-|deny|fixture-route|fixture-service|401|conservative|both|-' \
+  'fixture-unsupported|http|GET|/fixture-unsupported|-|-|anonymous|-|allow|fixture-route|fixture-service|200|unsupported|both|-' \
   > "$soundcheck_test_repo/bench/kong/conformance/probes.tsv"
-for soundcheck_matrix in auth paths mixed reducer category hosts boundaries; do
+for soundcheck_matrix in auth paths mixed reducer category hosts boundaries ip termination oss-auth; do
   cp "$soundcheck_source_dir/kong.yaml" "$soundcheck_test_repo/bench/kong/conformance/$soundcheck_matrix.yaml"
-  cp "$soundcheck_test_repo/bench/kong/conformance/probes.tsv" \
-    "$soundcheck_test_repo/bench/kong/conformance/$soundcheck_matrix-probes.tsv"
+  if [[ "$soundcheck_matrix" == ip || "$soundcheck_matrix" == termination ]]; then
+    sed 's/|-$/|10.1.2.3/' "$soundcheck_test_repo/bench/kong/conformance/probes.tsv" \
+      > "$soundcheck_test_repo/bench/kong/conformance/$soundcheck_matrix-probes.tsv"
+  else
+    cp "$soundcheck_test_repo/bench/kong/conformance/probes.tsv" \
+      "$soundcheck_test_repo/bench/kong/conformance/$soundcheck_matrix-probes.tsv"
+  fi
 done
+printf '%s\n' 'fixture-source|http|GET|/fixture-source|-|-|anonymous|-|allow|fixture-route|fixture-service|200|exact|both|10.1.2.3' \
+  >> "$soundcheck_test_repo/bench/kong/conformance/ip-probes.tsv"
 cp "$soundcheck_fixture_source" "$soundcheck_test_bin/mock-command"
 chmod +x "$soundcheck_test_bin/mock-command"
 for soundcheck_command in opam dune docker curl; do
@@ -116,11 +125,11 @@ for soundcheck_case in collision startup readiness timeout malformed-response ma
     expect_line "$soundcheck_log" "docker rm --force $soundcheck_first_id"
     expect_absent "$soundcheck_log" 'docker rm --force soundcheck-kong-conformance-'
     if [[ "$soundcheck_case" == success ]]; then
-      for soundcheck_id in {2..16}; do
+      for soundcheck_id in {2..22}; do
         expect_line "$soundcheck_log" "docker rm --force $(printf '%064d' "$soundcheck_id")"
       done
-      [[ "$(grep -c '^docker rm ' "$soundcheck_log")" -eq 16 ]] || \
-        fail 'success did not clean up exactly sixteen owned containers'
+      [[ "$(grep -c '^docker rm ' "$soundcheck_log")" -eq 22 ]] || \
+        fail 'success did not clean up exactly twenty-two owned containers'
       expect_absent "$soundcheck_stderr" 'Kong container diagnostics'
     else
       [[ "$(grep -c '^docker rm ' "$soundcheck_log")" -eq 1 ]] || \
@@ -161,18 +170,92 @@ for soundcheck_case in collision startup readiness timeout malformed-response ma
       expect_contains "$soundcheck_stderr" 'Model oracle failed [traditional/routing/fixture-routing]'
       ;;
     success)
-      [[ "$(grep -c '^ok \[traditional/' "$soundcheck_stdout")" -eq 48 ]] || \
-        fail 'traditional flavor did not complete all 48 fixture probes'
-      [[ "$(grep -c '^ok \[traditional_compatible/' "$soundcheck_stdout")" -eq 48 ]] || \
-        fail 'traditional_compatible flavor did not complete all 48 fixture probes'
-      expect_contains "$soundcheck_log" 'authenticated http GET /fixture-authenticated 127.0.0.1  fixture-key:valid x-region:us'
+      [[ "$(grep -c '^ok \[traditional/' "$soundcheck_stdout")" -eq 67 ]] || \
+        fail 'traditional flavor did not complete all 67 fixture probes'
+      [[ "$(grep -c '^ok \[traditional_compatible/' "$soundcheck_stdout")" -eq 67 ]] || \
+        fail 'traditional_compatible flavor did not complete all 67 fixture probes'
+      expect_contains "$soundcheck_log" 'authenticated http GET /fixture-authenticated 127.0.0.1  0.0.0.0 fixture-key:valid x-region:us'
       expect_contains "$soundcheck_log" 'anonymous http GET /fixture-anonymous 127.0.0.1 '
-      expect_contains "$soundcheck_stdout" 'Kong conformance checks passed (matrix: all; exact=48 conservative=32 unsupported-boundary=16)'
+      expect_contains "$soundcheck_log" 'anonymous http GET /fixture-source 127.0.0.1  10.1.2.3'
+      expect_contains "$soundcheck_stdout" 'Kong conformance checks passed (matrix: all; exact=68 conservative=44 unsupported-boundary=22)'
       ;;
   esac
   if [[ "$soundcheck_case" != success ]]; then
     expect_absent "$soundcheck_stdout" 'Kong conformance checks passed'
   fi
   printf '[ok] harness lifecycle: %s\n' "$soundcheck_case"
+done
+
+# Protocol and negative mutation controls: independently check that authored
+# source addresses reach both target transport and model without substitution.
+for soundcheck_case in focused-ip invalid-source source-cidr source-leading-zero missing-source missing-source-placeholder \
+    reserved-source-header malformed-source-header source-in-wrong-matrix query-path unknown-matrix \
+    omitted-source-injection changed-oracle-source omitted-trust-setup; do
+  soundcheck_log="$soundcheck_test_dir/$soundcheck_case.commands"
+  soundcheck_stdout="$soundcheck_test_dir/$soundcheck_case.stdout"
+  soundcheck_stderr="$soundcheck_test_dir/$soundcheck_case.stderr"
+  soundcheck_status=0
+  soundcheck_selection=ip
+  soundcheck_expected_status=1
+  soundcheck_row='fixture-source|http|GET|/fixture-source|-|-|anonymous|-|allow|fixture-route|fixture-service|200|exact|both|10.1.2.3'
+  cp "$soundcheck_harness_source" "$soundcheck_test_repo/bench/kong/conformance/run.sh"
+  case "$soundcheck_case" in
+    focused-ip) soundcheck_expected_status=0 ;;
+    invalid-source) soundcheck_row="${soundcheck_row%|*}|10.1.2.256" ;;
+    source-cidr) soundcheck_row="${soundcheck_row%|*}|10.1.2.3/32" ;;
+    source-leading-zero) soundcheck_row="${soundcheck_row%|*}|010.1.2.3" ;;
+    missing-source) soundcheck_row="${soundcheck_row%|*}" ;;
+    missing-source-placeholder) soundcheck_row="${soundcheck_row%|*}|-" ;;
+    reserved-source-header)
+      soundcheck_row='fixture-source|http|GET|/fixture-source|-|-|anonymous|x-Soundcheck-Client-IP:192.0.2.1|allow|fixture-route|fixture-service|200|exact|both|10.1.2.3' ;;
+    malformed-source-header)
+      soundcheck_row='fixture-source|http|GET|/fixture-source|-|-|anonymous|X-Soundcheck-Client-IP :192.0.2.1|allow|fixture-route|fixture-service|200|exact|both|10.1.2.3' ;;
+    source-in-wrong-matrix) soundcheck_selection=auth ;;
+    query-path)
+      soundcheck_row='fixture-source|http|GET|/fixture-source?stop=yes|-|-|anonymous|-|allow|fixture-route|fixture-service|200|exact|both|10.1.2.3' ;;
+    unknown-matrix) soundcheck_selection=does-not-exist; soundcheck_expected_status=2 ;;
+    omitted-source-injection)
+      sed '/curl_args+=(--header "X-Soundcheck-Client-IP: \$source_ip")/d' "$soundcheck_harness_source" \
+        > "$soundcheck_test_repo/bench/kong/conformance/run.sh" ;;
+    changed-oracle-source)
+      sed 's/oracle_source_ip="\$source_ip"/oracle_source_ip="192.0.2.1"/' "$soundcheck_harness_source" \
+        > "$soundcheck_test_repo/bench/kong/conformance/run.sh" ;;
+    omitted-trust-setup)
+      soundcheck_expected_status=99
+      sed 's/KONG_REAL_IP_HEADER=X-Soundcheck-Client-IP/KONG_REAL_IP_HEADER=X-Wrong-Header/' "$soundcheck_harness_source" \
+        > "$soundcheck_test_repo/bench/kong/conformance/run.sh" ;;
+  esac
+  printf '%s\n' "$soundcheck_row" > "$soundcheck_test_repo/bench/kong/conformance/ip-probes.tsv"
+  if [[ "$soundcheck_selection" == auth ]]; then
+    printf '%s\n' "$soundcheck_row" > "$soundcheck_test_repo/bench/kong/conformance/auth-probes.tsv"
+  fi
+  PATH="$soundcheck_test_bin:$PATH" \
+    SOUNDCHECK_HARNESS_TEST_CASE="$soundcheck_case" \
+    SOUNDCHECK_HARNESS_TEST_LOG="$soundcheck_log" \
+    bash "$soundcheck_test_repo/bench/kong/conformance/run.sh" "$soundcheck_selection" \
+    >"$soundcheck_stdout" 2>"$soundcheck_stderr" || soundcheck_status=$?
+  [[ "$soundcheck_status" -eq "$soundcheck_expected_status" ]] || \
+    fail "expected exit $soundcheck_expected_status, got $soundcheck_status"
+  case "$soundcheck_case" in
+    focused-ip)
+      [[ "$(grep -c '^docker create ' "$soundcheck_log")" -eq 2 ]] || fail 'focused selection did not run exactly two containers'
+      expect_contains "$soundcheck_stdout" 'Kong conformance checks passed (matrix: ip; exact=2 conservative=0 unsupported-boundary=0)' ;;
+    invalid-source|source-cidr|source-leading-zero|source-in-wrong-matrix)
+      expect_contains "$soundcheck_stderr" 'Invalid probe source IP' ;;
+    missing-source|query-path) expect_contains "$soundcheck_stderr" 'Invalid probe metadata' ;;
+    missing-source-placeholder) expect_contains "$soundcheck_stderr" 'Missing probe source IP' ;;
+    reserved-source-header) expect_contains "$soundcheck_stderr" 'Reserved source-IP header' ;;
+    malformed-source-header) expect_contains "$soundcheck_stderr" 'Invalid probe header name' ;;
+    unknown-matrix)
+      expect_contains "$soundcheck_stderr" 'Usage: run.sh'
+      [[ ! -e "$soundcheck_log" ]] || fail 'unknown matrix ran external commands' ;;
+    omitted-source-injection) expect_contains "$soundcheck_stderr" 'Request failed [traditional/ip/fixture-source]' ;;
+    changed-oracle-source) expect_contains "$soundcheck_stderr" 'Model oracle failed [traditional/ip/fixture-source]' ;;
+    omitted-trust-setup) expect_absent "$soundcheck_log" 'docker start ' ;;
+  esac
+  if [[ "$soundcheck_case" != focused-ip ]]; then
+    expect_absent "$soundcheck_stdout" 'Kong conformance checks passed'
+  fi
+  printf '[ok] harness source/selection: %s\n' "$soundcheck_case"
 done
 echo 'All harness lifecycle checks passed (mock commands; no Docker required).'

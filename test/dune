@@ -242,10 +242,62 @@
   ../bench/kong/conformance/hosts.yaml
   ../bench/kong/conformance/hosts-probes.tsv
   ../bench/kong/conformance/boundaries.yaml
-  ../bench/kong/conformance/boundaries-probes.tsv)
+  ../bench/kong/conformance/boundaries-probes.tsv
+  ../bench/kong/conformance/ip.yaml
+  ../bench/kong/conformance/ip-probes.tsv
+  ../bench/kong/conformance/termination.yaml
+  ../bench/kong/conformance/termination-probes.tsv
+  ../bench/kong/conformance/oss-auth.yaml
+  ../bench/kong/conformance/oss-auth-probes.tsv)
  (action
   (run
    bash
    %{dep:kong_conformance_harness_t.sh}
    %{dep:../bench/kong/conformance/run.sh}
    %{dep:fixtures/kong_conformance/mock-command.sh})))
+
+(rule
+ (alias runtest)
+ (deps
+  kong_model_oracle_t.sh
+  ../bench/kong/conformance/ip.yaml)
+ (action
+  (run
+   bash
+   %{dep:kong_model_oracle_t.sh}
+   %{exe:../bench/kong_model_oracle.exe}
+   %{dep:../bench/kong/conformance/ip.yaml})))
+
+(executable
+ (name semantic_acceptance_t)
+ (libraries soundcheck_kong yaml))
+
+(rule
+ (alias runtest)
+ (deps
+  check_wrappers_t.sh
+  fixtures/check_wrappers/mock-command.sh
+  ../scripts/check.sh
+  ../scripts/check-commit.sh)
+ (action
+  (run
+   bash
+   %{dep:check_wrappers_t.sh}
+   %{dep:../scripts/check.sh}
+   %{dep:../scripts/check-commit.sh}
+   %{dep:fixtures/check_wrappers/mock-command.sh})))
+
+(rule
+ (alias runtest)
+ (deps
+  ../bench/kong/semantic-coverage.yaml
+  (source_tree ../bench/kong/conformance)
+  (source_tree ../connectors/kong)
+  (source_tree ../core)
+  path_semantics_t.ml path_normalization_t.ml regex_boundary_t.ml regex_agree.ml
+  approximation_refinement_t.ml functionality_t.ml equivalence_t.ml approximation_t.ml
+  header_routing_t.ml sni_routing_t.ml semantic_hardening_t.ml auth_plugin_bypass_t.ml
+  global_plugin_t.ml rate_limit_coverage_t.ml cidr_t.ml network_restricted_t.ml
+  request_termination_t.ml parse_t.ml kong_assurance_t.ml top_level_route_t.ml)
+ (action
+  (run %{exe:semantic_acceptance_t.exe} .. %{dep:../bench/kong/semantic-coverage.yaml})))

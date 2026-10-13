@@ -10,10 +10,21 @@ EXACT_COUNT=0
 CONSERVATIVE_COUNT=0
 UNSUPPORTED_COUNT=0
 if [[ $# -gt 1 || ( "$MATRIX" != all && "$MATRIX" != routing && "$MATRIX" != auth &&
-      "$MATRIX" != supported && "$MATRIX" != boundaries ) ]]; then
-  echo "Usage: run.sh [all|routing|auth|supported|boundaries]" >&2
+      "$MATRIX" != supported && "$MATRIX" != boundaries && "$MATRIX" != plugins &&
+      "$MATRIX" != ip && "$MATRIX" != termination && "$MATRIX" != oss-auth ) ]]; then
+  echo "Usage: run.sh [all|routing|auth|supported|boundaries|plugins|ip|termination|oss-auth]" >&2
   exit 2
 fi
+
+valid_ipv4() {
+  local value="$1" octet
+  local octets=()
+  [[ "$value" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 1
+  IFS='.' read -r -a octets <<< "$value"
+  for octet in "${octets[@]}"; do
+    [[ "$octet" =~ ^(0|[1-9][0-9]{0,2})$ && "$octet" -le 255 ]] || return 1
+  done
+}
 
 cleanup() {
   local status=$?
@@ -59,6 +70,13 @@ run_flavor() {
     # mapped to 80/443. Request destination ports remain outside the model.
     matrix_environment+=(--env KONG_PORT_MAPS=80:8000,443:8443)
   fi
+  if [[ "$matrix" == ip || "$matrix" == termination ]]; then
+    # Synthetic source addresses only, on this invocation's loopback container.
+    # Trusting all transport peers is NOT a production recommendation. The
+    # single reserved header is authored from the same field as the oracle IP.
+    matrix_environment+=(--env KONG_TRUSTED_IPS=0.0.0.0/0
+      --env KONG_REAL_IP_HEADER=X-Soundcheck-Client-IP --env KONG_REAL_IP_RECURSIVE=off)
+  fi
 
   # Track only a container this invocation created. A name collision must not
   # make the exit trap remove another run's container. Keep creation separate
@@ -92,7 +110,7 @@ run_flavor() {
     return 1
   fi
 
-  while IFS='|' read -r name scheme method path host sni principal headers expected_decision expected_route expected_service expected_status model_class flavors extra; do
+  while IFS='|' read -r name scheme method path host sni principal headers expected_decision expected_route expected_service expected_status model_class flavors source_ip extra; do
     [[ -z "$name" || "$name" == \#* ]] && continue
     if [[ -n "$extra" || -z "$expected_status" ||
           ( "$scheme" != http && "$scheme" != https ) ||
@@ -101,9 +119,20 @@ run_flavor() {
           -z "$expected_route" || -z "$expected_service" ||
           ( "$expected_status" != - && ! "$expected_status" =~ ^[1-5][0-9][0-9]$ ) ||
           ( "$model_class" != exact && "$model_class" != conservative && "$model_class" != unsupported ) ||
-          ( "$flavors" != both && "$flavors" != traditional && "$flavors" != traditional_compatible ) ]]; then
+          ( "$flavors" != both && "$flavors" != traditional && "$flavors" != traditional_compatible ) ||
+          -z "$source_ip" || "$path" == *'?'* || "$path" == *'#'* ]]; then
       echo "Invalid probe metadata [$matrix/$name]" >&2
       return 1
+    fi
+    if [[ "$source_ip" == - && ( "$matrix" == ip || "$matrix" == termination ) ]]; then
+      echo "Missing probe source IP [$matrix/$name]" >&2
+      return 1
+    fi
+    if [[ "$source_ip" != - ]]; then
+      if ! valid_ipv4 "$source_ip" || [[ "$matrix" != ip && "$matrix" != termination ]]; then
+        echo "Invalid probe source IP [$matrix/$name]: $source_ip" >&2
+        return 1
+      fi
     fi
     [[ "$flavors" == both || "$flavors" == "$flavor" ]] || continue
     probe_count=$((probe_count + 1))
@@ -127,14 +156,28 @@ run_flavor() {
       host_value="$host"
       curl_args+=(--header "Host: $host")
     fi
-    oracle_args=("$config" "$principal" "$scheme" "$method" "$path" "$host_value" "$oracle_sni")
+    local oracle_source_ip=0.0.0.0
+    if [[ "$source_ip" != - ]]; then
+      oracle_source_ip="$source_ip"
+      curl_args+=(--header "X-Soundcheck-Client-IP: $source_ip")
+    fi
+    oracle_args=("$config" "$principal" "$scheme" "$method" "$path" "$host_value" "$oracle_sni" "$oracle_source_ip")
     if [[ "$headers" != "-" ]]; then
       local request_headers=()
-      local header
+      local header header_name
       IFS=';' read -r -a request_headers <<< "$headers"
       for header in "${request_headers[@]}"; do
         if [[ "$header" != *:* ]]; then
           echo "Invalid probe header [$matrix/$name]: $header" >&2
+          return 1
+        fi
+        header_name="$(printf '%s' "${header%%:*}" | tr '[:upper:]' '[:lower:]')"
+        if [[ ! "$header_name" =~ ^[a-z0-9_-]+$ ]]; then
+          echo "Invalid probe header name [$matrix/$name]: $header_name" >&2
+          return 1
+        fi
+        if [[ "$header_name" == x-soundcheck-client-ip ]]; then
+          echo "Reserved source-IP header in probe [$matrix/$name]" >&2
           return 1
         fi
         curl_args+=(--header "$header")
@@ -257,9 +300,9 @@ for flavor in traditional traditional_compatible; do
     port=18001
     tls_port=18444
   fi
-  for matrix in routing auth paths mixed reducer category hosts boundaries; do
+  for matrix in routing auth paths mixed reducer category hosts boundaries ip termination oss-auth; do
     case "$MATRIX/$matrix" in
-      all/*|routing/routing|auth/auth|supported/paths|supported/mixed|supported/reducer|supported/category|supported/hosts|boundaries/boundaries) ;;
+      all/*|routing/routing|auth/auth|supported/paths|supported/mixed|supported/reducer|supported/category|supported/hosts|boundaries/boundaries|plugins/auth|plugins/ip|plugins/termination|plugins/oss-auth|ip/ip|termination/termination|oss-auth/oss-auth) ;;
       *) continue ;;
     esac
     if [[ "$matrix" == routing ]]; then

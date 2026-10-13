@@ -1,0 +1,6 @@
+services:
+  - name: admin-api
+    routes:
+      - name: admin-get
+        paths: [/admin]
+        methods: [GET]

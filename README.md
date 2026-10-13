@@ -572,11 +572,17 @@ Unsupported rows must produce public `unknown` with an unsupported assessment;
 they are boundary checks, never counted as exact model agreement. Wrong target
 observations, missing possible winners, invalid bounds, and silent class changes fail.
 
-`dune test --force` runs the local suite and corpus. CI uses
-`dune test --force -j 1` to serialize solver-heavy test actions: concurrent
+The [semantic evidence inventory](bench/kong/SEMANTIC-COVERAGE.md) links all 42
+current profile features to pinned source, lowering ownership, local regressions,
+available target samples, and explicit gaps. Its drift/negative-control gate
+checks reference integrity, not whether citations establish complete semantics.
+
+`dune test --force -j 1` runs the local suite and corpus. CI and both local
+check wrappers serialize solver-heavy test actions: concurrent
 actions can exhaust the shared wall-clock deadline for a solver check and its
 SAT model replay. This changes scheduling, not deadlines or expected verdicts;
-the preceding build remains parallel. CI also runs real-Kong conformance.
+the preceding build remains parallel. The wrappers print the existing Dune/Z3
+versions without installing tools. CI also runs real-Kong conformance.
 `bash scripts/check.sh full` runs both locally with Docker;
 `bash scripts/check-commit.sh <revision>` independently checks a committed revision
 in a clean worktree without Docker. Gate tests use synthetic local Git repositories
@@ -657,7 +663,12 @@ multi-query contract result remains embedded in the comparison report.
 
 The next development priorities are continuous target conformance, semantic
 acceptance for every supported feature, small authorized deployment pilots, and
-usability improvements informed by that feedback. A deterministic repair benchmark
+usability improvements informed by that feedback. The experimental
+[local advisory runner and review worksheet](bench/pilot/README.md) prepare that
+evaluation with explicit frozen contracts and privacy-minimized summaries.
+Only synthetic examples are included; no real deployment pilots or accuracy
+claims are implied. The old heuristic directory survey is retired.
+A deterministic repair benchmark
 with structured feedback for external agent and RLVR systems follows verifier
 hardening and representative evaluation; it is not the immediate next milestone.
 

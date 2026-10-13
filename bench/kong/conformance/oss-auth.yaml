@@ -1,0 +1,36 @@
+_format_version: "3.0"
+_transform: true
+# Public synthetic credentials. No expiry/provider/store-availability claim.
+consumers:
+  - username: basic-fixture
+    basicauth_credentials:
+      - username: fixture-user
+        password: fixture-password
+  - username: jwt-fixture
+    jwt_secrets:
+      - key: soundcheck-fixture
+        secret: soundcheck-public-fixture-secret
+        algorithm: HS256
+services:
+  - name: oss-auth-service
+    url: http://127.0.0.1:8001/status
+    routes:
+      - name: basic-auth
+        paths: [/basic-auth]
+        plugins:
+          - name: basic-auth
+      - name: jwt-auth
+        paths: [/jwt-auth]
+        plugins:
+          - name: jwt
+            config:
+              uri_param_names: []
+              claims_to_verify: []
+      - name: jwt-preflight
+        paths: [/jwt-preflight]
+        plugins:
+          - name: jwt
+            config:
+              uri_param_names: []
+              claims_to_verify: []
+              run_on_preflight: false

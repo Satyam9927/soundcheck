@@ -1,0 +1,16 @@
+# name|scheme|method|path|host|sni|principal|headers|decision|route|service|status|model-class|flavors|source-ip
+# Request termination priority 2 follows key-auth 1250 and IP restriction 990.
+# Triggered requests are conservative; a definite earlier denial remains exact.
+global-termination|http|GET|/termination-global|-|-|anonymous|-|deny|termination-global|termination-global-service|418|exact|both|192.0.2.1
+route-trigger-absent|http|GET|/termination-route-trigger|-|-|anonymous|-|allow|termination-route-trigger|termination-global-service|200|conservative|both|192.0.2.1
+route-trigger-present|http|GET|/termination-route-trigger|-|-|anonymous|x-stop:yes|deny|termination-route-trigger|termination-global-service|418|conservative|both|192.0.2.1
+disabled-route-keeps-global-termination|http|GET|/termination-route-disabled|-|-|anonymous|-|deny|termination-route-disabled|termination-global-service|418|exact|both|192.0.2.1
+service-trigger-absent|http|GET|/termination-service-trigger|-|-|anonymous|-|allow|termination-service-trigger|termination-service|200|conservative|both|192.0.2.1
+service-trigger-present|http|GET|/termination-service-trigger|-|-|anonymous|x-stop:yes|deny|termination-service-trigger|termination-service|418|conservative|both|192.0.2.1
+route-unconditional-overrides-service|http|GET|/termination-route-unconditional|-|-|anonymous|-|deny|termination-route-unconditional|termination-service|418|exact|both|192.0.2.1
+auth-rejects-before-trigger|http|GET|/termination-auth|-|-|anonymous|x-stop:yes|deny|termination-auth|termination-service|401|exact|both|192.0.2.1
+auth-valid-triggered|http|GET|/termination-auth|-|-|authenticated|apikey:soundcheck-termination-key;x-stop:yes|deny|termination-auth|termination-service|418|conservative|both|192.0.2.1
+auth-valid-trigger-absent|http|GET|/termination-auth|-|-|authenticated|apikey:soundcheck-termination-key|allow|termination-auth|termination-service|200|conservative|both|192.0.2.1
+ip-rejects-before-trigger|http|GET|/termination-ip|-|-|anonymous|x-stop:yes|deny|termination-ip|termination-service|403|exact|both|192.0.2.1
+ip-allowed-triggered|http|GET|/termination-ip|-|-|anonymous|x-stop:yes|deny|termination-ip|termination-service|418|conservative|both|10.1.0.1
+ip-allowed-trigger-absent|http|GET|/termination-ip|-|-|anonymous|-|allow|termination-ip|termination-service|200|conservative|both|10.1.0.1

@@ -22,7 +22,85 @@ let contains haystack needle =
   in
   needle_length = 0 || search 0
 
+(* Snapshot of the v11 request language before factoring the leading slash.
+   Keep this independent of the production AST so the equality check detects
+   widening or shrinking any part of the domain, at every string length. *)
+let unfactored_request_path_language =
+  let reserved_percent =
+    "!*'();:@&=+$,/?%#[]" |> String.to_seq |> List.of_seq
+    |> List.map (fun character ->
+           Regex.Lit (Printf.sprintf "%%%02X" (Char.code character)))
+    |> fun alternatives -> Regex.Alt alternatives
+  in
+  let non_dot_token =
+    Regex.Alt
+      [ Regex.Class (true, [ ('/', '/'); ('%', '%'); ('.', '.') ]);
+        reserved_percent ]
+  in
+  let token = Regex.Alt [ Regex.Lit "."; non_dot_token ] in
+  let segment =
+    Regex.Alt
+      [ Regex.Concat [ non_dot_token; Regex.Star token ];
+        Regex.Concat [ Regex.Lit "."; non_dot_token; Regex.Star token ];
+        Regex.Concat [ Regex.Lit ".."; token; Regex.Star token ] ]
+  in
+  Regex.Alt
+    [ Regex.Lit "/";
+      Regex.Concat
+        [ Regex.Lit "/"; segment;
+          Regex.Star (Regex.Concat [ Regex.Lit "/"; segment ]);
+          Regex.Opt (Regex.Lit "/") ] ]
+
+let check_request_language () =
+  let language = Regex.to_smt Path_normalization.request_path_language in
+  let equivalence =
+    Printf.sprintf
+      "(set-logic ALL)\n(assert (distinct %s %s))\n(check-sat)\n"
+      (Regex.to_smt unfactored_request_path_language) language
+  in
+  (match Solve.check equivalence with
+   | Solve.Proved -> ()
+   | result ->
+     failwith ("request language changed: " ^ Solve.string_of_result result));
+
+  (* Explicit expectations from Kong's URI normalization rules: standalone dot
+     segments disappear, reserved escapes retain uppercase hex, other escapes
+     decode, and duplicate slashes collapse. Language equality alone would
+     preserve any pre-existing error, so also check these boundary cases. *)
+  let cases =
+    List.map (fun path -> (path, true))
+      [ "/"; "/a"; "/a/"; "/.a"; "/..a"; "/..."; "/.../";
+        "/.%2F"; "/..%2F"; "/a/.b/..c/.../";
+        "/admin/config.json"; "/a-b_c/~user/50%25";
+        "/a%2Fb"; "/%25"; "/endeløst" ]
+    @ List.map (fun path -> (path, false))
+      [ ""; "a"; "/."; "/.."; "/a/."; "/a/.."; "/./a"; "/../a";
+        "//"; "/a//b"; "/a//"; "/%2E"; "/%41"; "/%2f";
+        "/%"; "/%2"; "/%GG"; "/a%zz" ]
+  in
+  List.iter
+    (fun (path, expected) ->
+      if Path_normalization.is_normalized_request_path path <> expected then
+        failwith (Printf.sprintf "request-domain membership for %S" path))
+    cases;
+  let disagreements =
+    List.map
+      (fun (path, expected) ->
+        Printf.sprintf "(not (= (str.in_re %s %s) %b))"
+          (Regex.smt_string path) language expected)
+      cases
+    |> String.concat " "
+  in
+  let query =
+    "(set-logic ALL)\n(assert (or " ^ disagreements ^ "))\n(check-sat)\n"
+  in
+  match Solve.check query with
+  | Solve.Proved -> ()
+  | result ->
+    failwith ("SMT request-domain boundary: " ^ Solve.string_of_result result)
+
 let () =
+  check_request_language ();
   (* Transcribed from Kong's kong.tools.uri unit cases. *)
   List.iter (fun (raw, expected) -> expect_normalized raw expected)
     [ ("/a%2fb%2fc/", "/a%2Fb%2Fc/");

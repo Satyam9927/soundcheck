@@ -1,0 +1,19 @@
+# Public synthetic inputs only. This is not deployment/accuracy evidence.
+format_version: 1
+cases:
+  - id: demo-unsafe
+    provenance: synthetic
+    config: unsafe.yaml
+    contract: admin-get.yaml
+  - id: demo-repaired
+    provenance: synthetic
+    config: repaired.yaml
+    contract: admin-get.yaml
+  - id: demo-deny-all
+    provenance: synthetic
+    config: deny-all.yaml
+    contract: admin-get.yaml
+  - id: demo-unsupported
+    provenance: synthetic
+    config: unsupported.yaml
+    contract: admin-get.yaml

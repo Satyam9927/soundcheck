@@ -3,7 +3,7 @@ open Soundcheck_kong
 
 let usage () =
   prerr_endline
-    "usage: kong_model_oracle CONFIG PRINCIPAL SCHEME METHOD PATH HOST SNI [HEADER-NAME:VALUE ...]";
+    "usage: kong_model_oracle CONFIG PRINCIPAL SCHEME METHOD PATH HOST SNI SOURCE-IP [HEADER-NAME:VALUE ...]";
   exit 2
 
 let parse_header value =
@@ -17,6 +17,20 @@ let parse_header value =
     (name, contents)
   | None ->
     prerr_endline (Printf.sprintf "invalid header %S (expected NAME:VALUE)" value);
+    exit 2
+
+let parse_source value =
+  let octet part =
+    part <> "" && String.length part <= 3
+    && (String.length part = 1 || part.[0] <> '0')
+    && String.for_all (fun c -> c >= '0' && c <= '9') part
+    && int_of_string part <= 255
+  in
+  match String.split_on_char '.' value with
+  | [ a; b; c; d ] when List.for_all octet [ a; b; c; d ] ->
+    (match Cidr.parse value with Ok cidr -> cidr.base | Error _ -> assert false)
+  | _ ->
+    prerr_endline (Printf.sprintf "invalid probe source IP %S (expected canonical IPv4 address)" value);
     exit 2
 
 let service_for_route (config : Ast.config) route =
@@ -56,7 +70,8 @@ let confirm_unsupported source =
     exit 2
 
 let () =
-  if Array.length Sys.argv < 8 then usage ();
+  if Array.length Sys.argv < 9 then usage ();
+  let source_ip = parse_source Sys.argv.(8) in
   (* The fixture, not the policy decision, assigns the abstract principal.
      In particular an invalid/missing key is anonymous even if Kong permits it
      through an explicit anonymous-consumer fallback. *)
@@ -81,15 +96,15 @@ let () =
    | Error _ -> confirm_unsupported source
    | Ok () -> ());
   let headers =
-    List.init (Array.length Sys.argv - 8) (fun index ->
-        parse_header Sys.argv.(index + 8))
+    List.init (Array.length Sys.argv - 9) (fun index ->
+        parse_header Sys.argv.(index + 9))
   in
   let request : Ir.request =
     { principal;
       action = String.uppercase_ascii Sys.argv.(4);
       resource = Sys.argv.(5);
       context = headers;
-      source = 0l;
+      source = source_ip;
       host = String.lowercase_ascii Sys.argv.(6);
       scheme = String.lowercase_ascii Sys.argv.(3);
       sni = String.lowercase_ascii Sys.argv.(7) }

@@ -1,0 +1,75 @@
+_format_version: "3.0"
+# Synthetic addresses are delivered through a fixture-only trusted real-IP
+# header. This is not a recommended production trusted-proxy configuration.
+plugins:
+  - name: ip-restriction
+    config:
+      allow: [10.0.0.0/8]
+      deny: [10.2.0.0/16]
+  - name: ip-restriction
+    route: ip-combined
+    config: {allow: [203.0.113.0/24]}
+  - name: ip-restriction
+    service: ip-service
+    route: ip-combined
+    config: {allow: [198.51.100.0/24]}
+  - name: ip-restriction
+    route: ip-combined-disabled
+    config: {allow: [203.0.113.0/24]}
+  - name: ip-restriction
+    service: ip-service
+    route: ip-combined-disabled
+    enabled: false
+    config: {allow: [198.51.100.0/24]}
+services:
+  - name: ip-global-service
+    url: http://127.0.0.1:8001/status
+    routes:
+      - name: ip-global
+        paths: [/ip-global]
+      - name: ip-global-disabled
+        paths: [/ip-global-disabled]
+        plugins:
+          - name: ip-restriction
+            enabled: false
+            config: {allow: [192.168.0.0/16]}
+  - name: ip-service
+    url: http://127.0.0.1:8001/status
+    plugins:
+      - name: ip-restriction
+        config:
+          allow: [192.168.0.0/16]
+          deny: [192.168.2.0/24]
+    routes:
+      - name: ip-service-only
+        paths: [/ip-service]
+      - name: ip-route
+        paths: [/ip-route]
+        plugins:
+          - name: ip-restriction
+            config: {allow: [172.16.0.0/12]}
+      - name: ip-route-disabled
+        paths: [/ip-route-disabled]
+        plugins:
+          - name: ip-restriction
+            enabled: false
+            config: {allow: [172.16.0.0/12]}
+      - name: ip-combined
+        paths: [/ip-combined]
+      - name: ip-combined-disabled
+        paths: [/ip-combined-disabled]
+      - name: ip-zero
+        paths: [/ip-zero]
+        plugins:
+          - name: ip-restriction
+            config: {allow: [0.0.0.0/0]}
+      - name: ip-single
+        paths: [/ip-single]
+        plugins:
+          - name: ip-restriction
+            config: {allow: [203.0.113.7/32]}
+      - name: ip-deny-only
+        paths: [/ip-deny-only]
+        plugins:
+          - name: ip-restriction
+            config: {deny: [192.0.2.0/24]}
