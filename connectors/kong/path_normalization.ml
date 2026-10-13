@@ -142,13 +142,16 @@ let segment =
       Regex.Concat [ Regex.Lit ".."; token; Regex.Star token ] ]
 
 let request_path_language =
-  Regex.Alt
+  (* "/" | "/" suffix = "/" suffix?. Sharing the leading slash reduces
+     solver work with literal route prefixes; the accepted language is
+     unchanged. *)
+  Regex.Concat
     [ Regex.Lit "/";
-      Regex.Concat
-        [ Regex.Lit "/";
-          segment;
-          Regex.Star (Regex.Concat [ Regex.Lit "/"; segment ]);
-          Regex.Opt (Regex.Lit "/") ] ]
+      Regex.Opt
+        (Regex.Concat
+           [ segment;
+             Regex.Star (Regex.Concat [ Regex.Lit "/"; segment ]);
+             Regex.Opt (Regex.Lit "/") ]) ]
 
 let request_domain = Ir.Path_regex request_path_language
 
