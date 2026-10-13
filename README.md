@@ -1,6 +1,19 @@
-# Soundcheck
+<p align="center">
+  <img src="docs/assets/soundcheck-logo.png" alt="Soundcheck: a sound wave flowing into a check mark" width="160" height="160">
+</p>
 
-**Proof-or-counterexample for declarative security policy.**
+<h1 align="center">Soundcheck</h1>
+
+<p align="center">
+  <strong>Proof-or-counterexample for declarative security policy.</strong>
+</p>
+
+<p align="center">
+  <a href="https://github.com/ph0smet/soundcheck/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://github.com/ph0smet/soundcheck/actions/workflows/ci.yml/badge.svg?branch=main&amp;event=push" alt="CI status on main"></a>
+  <a href="https://ocaml.org/"><img src="https://img.shields.io/badge/OCaml-5.0%2B-EC6813?logo=ocaml&amp;logoColor=white" alt="OCaml 5.0 or newer"></a>
+  <a href="https://github.com/Z3Prover/z3"><img src="https://img.shields.io/badge/solver-Z3-137CBD" alt="Solver: Z3"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-009C95" alt="License: MIT"></a>
+</p>
 
 Soundcheck takes a policy artifact, such as an API-gateway config, and proves security
 invariants over it. It returns a solver-backed verdict that no violating request exists

@@ -1,0 +1,21 @@
+{
+  "description": "SMT-backed verification of declarative security policies. Check Kong configurations against frozen contracts; get model-relative proofs or validated counterexample candidates.",
+  "topics": [
+    "ocaml",
+    "formal-verification",
+    "formal-methods",
+    "smt",
+    "z3",
+    "security",
+    "policy-as-code",
+    "authorization",
+    "kong",
+    "api-gateway",
+    "devsecops",
+    "github-actions",
+    "mcp",
+    "model-context-protocol",
+    "static-analysis",
+    "counterexamples"
+  ]
+}

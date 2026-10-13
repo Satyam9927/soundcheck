@@ -210,7 +210,7 @@ action.yml            approved-base-contract CI adapter
 scripts/              local/full/clean-commit checks and gate helper
 bench/                corpus and pinned real-Kong conformance
 test/                 regressions, independent oracles, adapter acceptance
-docs/plans/           approved bounded tasks and semantic acceptance evidence
+docs/plans/           substantial technical scope, decisions, and acceptance evidence
 ```
 
 ## Sequencing
@@ -228,10 +228,16 @@ the Kong verifier is ready for public promotion.
 - For substantial work, read the Soundcheck Codex memory index at
   `~/.codex/memories/projects/-Users-souravkumar-program-analysis-Soundcheck/MEMORY.md`.
   That is the active project tracker; do not use or update the retired Claude memory.
-- Keep standing architectural and working rules here. Record approved bounded
-  task scope, semantic acceptance notes, and evidence in `docs/plans/`; local
-  project memory tracks roadmap status and session context, not a substitute
-  specification that an implementation may silently weaken.
+- Keep standing architectural and working rules here. Use `docs/plans/` for
+  substantial technical work that needs durable approved scope, semantic decisions,
+  acceptance criteria, or independently justified evidence beyond the code and
+  tests. Keep these records concise and useful to future contributors. Include
+  approval records when they establish the accepted scope or semantics. Do not
+  create plans for routine branding or documentation edits, or use them as
+  session transcripts, prompt archives, or chronological progress logs. PR
+  descriptions and local project memory hold routine validation summaries,
+  roadmap status, and session context. Memory is not a substitute specification
+  that an implementation may silently weaken.
 - Prefix OCaml commands with `eval $(opam env)`.
 - Work on a focused `feat/`, `fix/`, `docs/`, or `chore/` branch; never commit
   directly to `main`.
