@@ -184,7 +184,7 @@ PCRE2 versus the pinned ATC/Rust regex implementation explains the boundary
 fixtures' Unicode, final-LF and anchoring differences. Their target observations
 remain useful even though the shared profile rejects those languages. Literal
 `+` tests use explicit format 3.0; legacy 1.1/2.1 migration has separate source-
-justified regressions. See the [execution plan](../../../docs/plans/2026-10-kong-hardening.md)
+justified regressions. See the [hardening acceptance record](../../../docs/plans/2026-10-kong-hardening.md)
 for the narrowed profile, independent refinement oracle, and acceptance record.
 
 Remaining gaps include the rest of the recognized authentication list,

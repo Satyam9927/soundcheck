@@ -1,66 +1,51 @@
-# Kong corpus timeout follow-up
+# Kong corpus timeout: rationale and acceptance
 
-## Scope and acceptance
+## Problem and preserved boundary
 
-Sourav reported the failed full regression step for the PR from
-`feat/kong-pilot-readiness` to `main`. Only `plain-path-punctuation` failed:
-its required `violated` result became `unknown` because the solver process
-exhausted its deadline. The workflow already pins Z3 4.16.0 and runs
-`dune test --force -j 1`.
+`plain-path-punctuation` returned `unknown` on solver timeout instead of its
+required `violated` result. CI already pinned Z3 4.16.0 and ran forced tests with
+`-j 1`. The [earlier contention experiment](2026-10-kong-hardening.md#ci-contention-decision-2026-10-10)
+showed little Linux deadline headroom; sequential scheduling removed competition
+within the suite without simplifying the query. The failure log does not
+establish the hosted runner's exact resource load.
 
-This bounded fix reduces solver work without changing the request language,
-verifier verdicts, corpus fixtures/goldens, frozen contracts, profile v11,
-report schema 9, shared ten-second solver deadline, or timeout failure behavior.
-The source branch remains the PR branch. Present the tested diff for review
-before committing or pushing; opening or merging a PR is not delegated.
-
-The prior investigation in `2026-10-kong-hardening.md` measured 8.99 seconds
-for the same pinned Linux query's status check and SAT model replay. Sequential
-test scheduling removed suite-internal competition but left little headroom.
-The supplied log does not establish the hosted runner's exact resource load.
+The fix preserves the request language, fixtures/goldens, frozen contracts,
+profile v11, report schema 9, and fail-closed timeout behavior. Status checking
+and SAT model replay still share one ten-second solver budget.
 
 ## Change and semantic evidence
 
-Factor the normalized-path regular language from `"/" | "/" suffix` to
-`"/" suffix?`. This is regular-language distributivity with optionality
-(`suffix? = epsilon | suffix`). The suffix, segment rules, character alphabet,
-and percent-escape rules stay identical. No solver process/protocol change is
-needed.
+Factor the [normalized-path language](../../connectors/kong/path_normalization.ml)
+from `"/" | "/" suffix` to `"/" suffix?`, using regular-language distributivity
+and `suffix? = epsilon | suffix`. Suffix, segment, alphabet and percent-escape
+rules remain identical; no solver process/protocol change is needed.
 
-Regression coverage retains the complete pre-change v11 AST and asks Z3 whether
-its regular language differs from the new AST, without restricting path length
-or scope. The required answer is UNSAT. Separate explicit URI-normalization
-expectations test concrete and SMT membership for root/trailing slashes,
-dot-prefixed and dot-only segments, punctuation, reserved and malformed percent
-escapes, duplicate slashes, and a UTF-8 path. This proves preservation relative
-to the existing model and checks finite target-derived boundaries; it is not
-new comprehensive target conformance.
+The [regression](../../test/path_normalization_t.ml) retains the complete
+pre-change v11 AST and asks Z3 whether its language differs from the new AST,
+without restricting path length or scope. Direct language inequality returns
+UNSAT. A preliminary membership-XOR diagnostic timed out; direct equality
+establishes the same preservation obligation without that search.
 
-## Validation
+Separately, 33 explicit positive/negative paths test concrete and SMT membership
+against URI-normalization expectations: root/trailing slashes, dot-prefixed and
+dot-only segments, punctuation, reserved/malformed percent escapes, duplicate
+slashes and UTF-8. The equality check establishes model-language preservation;
+the 33 paths check finite expected boundaries. Neither supplies comprehensive
+target conformance.
 
-- `dune build @all` and `dune test --force -j 1` passed locally, including all
-  50 unchanged corpus cases, the new path-domain checks, and existing solver
-  deadline/process/protocol, witness, frozen-adapter and pilot regressions.
-  Toolchain: OCaml 5.5.0, Dune 3.24.0, Z3 4.16.0 on macOS arm64.
-- The focused path-normalization test passed: full-language inequality returned
-  UNSAT, and all 33 explicit positive/negative paths matched their expected
-  membership in both the concrete evaluator and SMT encoding. A preliminary
-  diagnostic using membership XOR instead of direct language inequality timed
-  out; the direct equality obligation proves preservation without that costly
-  search. No production timeout or acceptance criterion changed.
-- Three sequential measurements of the original and candidate emitted
-  obligations, each performing the status check and full SAT model replay under
-  one ten-second budget, gave median totals of **3.69 seconds before** and
-  **1.18 seconds after**. The candidate CLI also returned the required validated
-  `violated` result via `admin-dotted`, with exit code 3.
-- Independent read-only review found no blocking semantic, test or scope issue.
-  Whitespace checks passed. The final comment-only wording refinement was
-  followed by another successful `dune build @all`.
+## Historical local acceptance (2026-10-13)
 
-These local measurements do not establish Linux or hosted CI performance.
-Docker remained stopped, so pinned Linux solver timing and live Kong
-conformance were not rerun. Hosted CI has not run with this uncommitted fix.
-At pre-commit review the diff remained on `feat/kong-pilot-readiness`; no commit,
-push, PR creation or merge had been performed. Sourav subsequently approved
-committing and pushing the reviewed fix on 2026-10-13. The exact new commit must
-pass `scripts/check-commit.sh` before pushing to the existing PR branch.
+Build and forced sequential regressions passed, including all 50 unchanged
+corpus cases, the language-equivalence/33-path checks and existing deadline,
+protocol, witness, frozen-adapter and pilot regressions. Toolchain: OCaml 5.5.0,
+Dune 3.24.0, Z3 4.16.0, macOS arm64. Independent review found no blocker.
+
+Three sequential measurements per version, each including status checking and
+full SAT model replay under one ten-second budget, gave median totals of
+**3.69 seconds before** and **1.18 seconds after**. The candidate CLI returned a
+validated `violated` result through `admin-dotted`, exit code 3.
+
+These measurements do not establish Linux or hosted CI performance. Independent
+Linux timing and live Kong conformance were not rerun in this local optimization
+check; the unrestricted language-equivalence regression supplies preservation
+evidence for the existing model.

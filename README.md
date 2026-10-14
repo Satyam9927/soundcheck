@@ -564,7 +564,7 @@ This is an early project and the boundaries are worth stating plainly.
 `expected.json` artifacts. Profile v11 deliberately changes previous unsupported
 regex claims to unknown, marks shared-order/runtime approximations, and rejects
 unmodeled plugins. The original configs are retained; expectations are justified
-in the [hardening execution plan](docs/plans/2026-10-kong-hardening.md), not regenerated
+in the [hardening acceptance record](docs/plans/2026-10-kong-hardening.md), not regenerated
 merely to make a suite green.
 
 The suite includes strict YAML/contract input rejection, solver process and
