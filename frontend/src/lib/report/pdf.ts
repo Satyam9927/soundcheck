@@ -1,6 +1,6 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage, type RGB } from "pdf-lib";
 
-import type { CellOutcome } from "../audit";
+import { BASIS_COPY, type AuditStatus, type CellOutcome } from "../audit";
 import { OUTCOME_LABEL, type ReportModel } from "./model";
 
 const PAGE: [number, number] = [595.28, 841.89];
@@ -13,7 +13,7 @@ const FAINT = rgb(0.55, 0.58, 0.63);
 const LINE = rgb(0.86, 0.88, 0.91);
 const WASH = rgb(0.965, 0.97, 0.98);
 
-const TONES: Record<CellOutcome | "pass" | "review" | "fail", RGB> = {
+const TONES: Record<CellOutcome | AuditStatus, RGB> = {
   proved: rgb(0.04, 0.48, 0.32),
   violated: rgb(0.77, 0.18, 0.1),
   vacuous: rgb(0.6, 0.36, 0),
@@ -22,7 +22,9 @@ const TONES: Record<CellOutcome | "pass" | "review" | "fail", RGB> = {
   error: rgb(0.45, 0.45, 0.5),
   pending: FAINT,
   pass: rgb(0.04, 0.48, 0.32),
+  "no-findings": rgb(0.6, 0.36, 0),
   review: rgb(0.6, 0.36, 0),
+  incomplete: rgb(0.31, 0.31, 0.81),
   fail: rgb(0.77, 0.18, 0.1),
 };
 
@@ -215,7 +217,10 @@ export async function renderPdf(report: ReportModel): Promise<Uint8Array> {
   w.page.drawRectangle({ x: MARGIN.x, y: w.y - band, width: 4, height: band, color: tone });
   w.page.drawText(safe(report.statusLabel.toUpperCase()), { x: MARGIN.x + 16, y: w.y - 22, size: 15, font: fonts.bold, color: tone });
   w.page.drawText(safe(report.statusSummary), { x: MARGIN.x + 16, y: w.y - 37, size: 8.5, font: fonts.regular, color: MUTED });
-  w.y -= band + 14;
+  w.y -= band + 6;
+  const incomplete = report.completion.startsWith("INCOMPLETE");
+  w.text(report.completion, { font: "bold", size: 9, color: incomplete ? TONES.incomplete : MUTED });
+  w.gap(8);
 
   // Stats grid, five per row
   const perRow = 5;
@@ -232,11 +237,21 @@ export async function renderPdf(report: ReportModel): Promise<Uint8Array> {
     w.y -= boxH + 2;
   }
 
+  // Provenance
+  w.heading("Provenance", 2);
+  w.table(
+    [{ header: "Item", width: WIDTH * 0.28 }, { header: "Value", width: WIDTH * 0.72 }],
+    report.provenance.map(([label, value]) => [{ text: label }, { text: value, font: "mono" as const, color: MUTED }]),
+    7.5,
+  );
+
   // Checks
   w.heading("Checks", 2);
   for (const check of report.checks) {
-    w.text(`${check.label}${check.parameters ? ` (${check.parameters})` : ""}`, { font: "bold", size: 9.5 });
+    const basis = BASIS_COPY[check.basis].label;
+    w.text(`${check.label} [${basis}]${check.parameters ? ` (${check.parameters})` : ""}`, { font: "bold", size: 9.5 });
     w.text(check.description, { color: MUTED, size: 9, indent: 10 });
+    for (const assumption of check.assumptions) w.text(`Assumes: ${assumption}`, { color: MUTED, size: 8.5, indent: 10 });
     for (const statement of check.statement) w.text(statement, { font: "mono", size: 7.5, indent: 10, color: MUTED });
     w.gap(4);
   }
@@ -289,6 +304,8 @@ export async function renderPdf(report: ReportModel): Promise<Uint8Array> {
           line(finding.outcome, finding.check.label, finding.exitCode, finding.summary, finding.outcome !== "proved" ? finding.command : null);
         }
       }
+      w.gap(3);
+      for (const item of section.evidence) w.text(item, { font: "mono", size: 7, color: FAINT });
       if (section.assuranceFindings.length > 0) {
         w.gap(3);
         w.text("Assurance findings", { font: "bold", size: 8, color: MUTED });

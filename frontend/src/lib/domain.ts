@@ -1,4 +1,4 @@
-import type { PropertyId, PropertySpec } from "./api";
+import type { CompareMode, PropertyId, PropertySpec } from "./api";
 import type { AssuranceStatus, Verdict } from "./contract";
 
 export type Tone = "proved" | "violated" | "vacuous" | "unknown" | "inconsistent";
@@ -242,7 +242,12 @@ export const COMPARE_MODE_INFO = {
     short: "Service target",
     description: "Additionally preserves the service's protocol, host, port and base path.",
   },
-} as const;
+  "upstream-uri": {
+    label: "Upstream URI",
+    short: "Upstream URI",
+    description: "Same decision, route and service, and the same URI Kong sends upstream after path handling.",
+  },
+} as const satisfies Record<CompareMode, { label: string; short: string; description: string }>;
 
 const ACRONYMS: Record<string, string> = {
   api: "API",

@@ -1,6 +1,6 @@
 "use client";
 
-import { FileWarning, PlugZap, SlidersHorizontal, TerminalSquare } from "lucide-react";
+import { Ban, FileWarning, Hourglass, PlugZap, ShieldAlert, SlidersHorizontal, TerminalSquare } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 
 import type { EngineFailure } from "@/lib/api";
@@ -34,7 +34,10 @@ const STAGES: Record<EngineFailure["stage"], { title: string; icon: typeof FileW
   parse: { title: "The config could not be parsed", icon: FileWarning },
   usage: { title: "The engine rejected this request", icon: SlidersHorizontal },
   input: { title: "Check the inputs", icon: SlidersHorizontal },
-  engine: { title: "The engine is unavailable", icon: PlugZap },
+  engine: { title: "The engine did not produce a result", icon: PlugZap },
+  protocol: { title: "The engine's output was rejected", icon: ShieldAlert },
+  busy: { title: "The verifier is busy", icon: Hourglass },
+  cancelled: { title: "The run was cancelled", icon: Ban },
 };
 
 export function Failure({ failure }: { failure: EngineFailure }) {
@@ -50,9 +53,13 @@ export function Failure({ failure }: { failure: EngineFailure }) {
           <p className="mt-0.5 text-[13px] text-ink-2">
             {failure.stage === "parse"
               ? "This is a tool error, not a verification outcome. Fix the YAML and run again."
-              : failure.stage === "engine"
-                ? "Nothing was verified."
-                : "No verification was attempted."}
+              : failure.stage === "protocol"
+                ? "The output failed validation against the engine's versioned schema, so it is not shown as a verdict. Nothing was verified."
+                : failure.stage === "engine" || failure.stage === "cancelled"
+                  ? "Nothing was verified."
+                  : failure.stage === "busy"
+                    ? "Too many runs are queued. Nothing was verified; try again shortly."
+                    : "No verification was attempted."}
             {failure.exitCode !== null && ` Exit code ${failure.exitCode}.`}
           </p>
         </div>

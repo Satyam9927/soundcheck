@@ -20,11 +20,21 @@ function toContainer(arg) {
   return `${MOUNT}/${relative.split(path.sep).join("/")}`;
 }
 
+// Killing this bridge (or the docker client) does not stop a process running
+// inside the container, so each run is also bounded there: SIGTERM at the web
+// adapter's deadline plus a second, then SIGKILL two seconds later.
+const timeoutMs = Number(process.env.SOUNDCHECK_TIMEOUT_MS ?? 60_000);
+const limit = `${Math.ceil((Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 60_000) / 1000) + 1}s`;
+
 const args = process.argv.slice(2).map(toContainer);
-const child = spawn("docker", ["exec", "-i", container, "soundcheck", ...args], {
-  stdio: ["inherit", "inherit", "pipe"],
+const child = spawn("docker", ["exec", container, "timeout", "--kill-after=2s", limit, "soundcheck", ...args], {
+  stdio: ["ignore", "inherit", "pipe"],
   windowsHide: true,
 });
+
+for (const signal of ["SIGTERM", "SIGINT"]) {
+  process.on(signal, () => child.kill(signal));
+}
 
 let stderr = "";
 child.stderr.on("data", (chunk) => {

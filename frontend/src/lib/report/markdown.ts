@@ -1,3 +1,4 @@
+import { BASIS_COPY } from "../audit";
 import { OUTCOME_LABEL, type ReportModel } from "./model";
 
 function cell(value: string) {
@@ -14,6 +15,7 @@ export function renderMarkdown(report: ReportModel): string {
 
   push(`# ${report.title}`, "");
   push(`**Overall: ${report.statusLabel}.** ${report.statusSummary}`, "");
+  push(`**${report.completion}**`, "");
   push(
     `| | |`,
     `|---|---|`,
@@ -28,9 +30,14 @@ export function renderMarkdown(report: ReportModel): string {
   for (const [label, value] of report.stats) push(`| ${label} | ${value} |`);
   push("");
 
+  push("## Provenance", "", "| | |", "|---|---|");
+  for (const [label, value] of report.provenance) push(`| ${label} | ${cell(value)} |`);
+  push("");
+
   push("## Checks", "");
   for (const check of report.checks) {
-    push(`- **${check.label}**${check.parameters ? ` (${check.parameters})` : ""}: ${check.description}`);
+    push(`- **${check.label}** [${BASIS_COPY[check.basis].label}]${check.parameters ? ` (${check.parameters})` : ""}: ${check.description}`);
+    for (const assumption of check.assumptions) push(`  - Assumes: ${assumption}`);
     for (const statement of check.statement) push(`  ${code(statement)}`);
   }
   push("");
@@ -59,6 +66,7 @@ export function renderMarkdown(report: ReportModel): string {
           if (finding.outcome !== "proved") push(`  - Reproduce: ${code(finding.command)}`);
         }
       }
+      push("", ...section.evidence.map((line) => `- ${line}`));
       if (section.assuranceFindings.length > 0) {
         push("", "Assurance findings:", "");
         for (const item of section.assuranceFindings) push(`- ${item}`);
