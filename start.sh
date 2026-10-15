@@ -149,7 +149,7 @@ if [ "$RUN_MODE" = docker ]; then
   docker rm "$CONTAINER" >/dev/null 2>&1 || true
 
   info "Starting container $CONTAINER on port $PORT"
-  docker run -d --rm --name "$CONTAINER" -p "$PORT:3000" "$IMAGE" web >/dev/null
+  docker run -d --rm --name "$CONTAINER" -p "127.0.0.1:$PORT:3000" "$IMAGE" web >/dev/null
   echo docker >"$RUN_DIR/mode"
   echo "$PORT" >"$RUN_DIR/frontend.port"
 
@@ -235,9 +235,9 @@ NEXT="node_modules/next/dist/bin/next"
 if [ "$NEXT_MODE" = "prod" ]; then
   info "Building the web app for production"
   node "$NEXT" build
-  ARGS=(start -p "$PORT")
+  ARGS=(start -H 127.0.0.1 -p "$PORT")
 else
-  ARGS=(dev -p "$PORT")
+  ARGS=(dev -H 127.0.0.1 -p "$PORT")
 fi
 
 info "Starting the web app (next $([ "$NEXT_MODE" = prod ] && echo start || echo dev)) on port $PORT"

@@ -1,21 +1,36 @@
 import "server-only";
 
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+
 import {
   COMPARE_MODES,
   PROPERTY_IDS,
+  type CompareMode,
   type CompareRequest,
   type CompareResponse,
   type EngineFailure,
   type PropertySpec,
+  type RunProvenance,
   type Spec,
   type VerifyRequest,
   type VerifyResponse,
 } from "@/lib/api";
-import type { AssuranceProfile, CompareReport, RepairReport, VerifyReport } from "@/lib/contract";
+import { assuranceProfile, evidenceManifest, type AssuranceProfile, type EvidenceManifest } from "@/lib/contract";
+import { parseJson } from "@/lib/schema";
 
-import { EngineUnavailableError, execEngine, withWorkspace, type RunResult } from "./engine";
+import { accept, acceptCompare, acceptVerify } from "./accept";
+import {
+  EngineAbortedError,
+  EngineBusyError,
+  engineIdentity,
+  EngineUnavailableError,
+  execEngine,
+  sha256,
+  withWorkspace,
+} from "./engine";
 
-const MAX_DOCUMENT_BYTES = 512 * 1024;
+export const MAX_DOCUMENT_BYTES = 512 * 1024;
 
 class InputError extends Error {}
 
@@ -105,40 +120,16 @@ function display(args: string[]) {
     .join(" ");
 }
 
-function failure(result: RunResult, command: string): EngineFailure {
-  if (result.timedOut) {
-    return {
-      ok: false,
-      stage: "engine",
-      exitCode: null,
-      command,
-      message: "The engine did not finish within the time limit.",
-    };
-  }
-  const stage = result.exitCode === 1 ? "parse" : result.exitCode === 2 ? "usage" : "engine";
-  return {
-    ok: false,
-    stage,
-    exitCode: result.exitCode,
-    command,
-    message: result.stderr.trim() || result.stdout.trim() || `The engine exited with code ${result.exitCode}.`,
-  };
-}
-
-function parseReport<T>(result: RunResult): T | null {
-  const text = result.stdout.trim();
-  if (!text.startsWith("{")) return null;
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    return null;
-  }
-}
-
 function guard<T extends { ok: boolean }>(fn: () => Promise<T>): Promise<T | EngineFailure> {
   return fn().catch((error: unknown): EngineFailure => {
     if (error instanceof InputError) {
       return { ok: false, stage: "input", exitCode: null, message: error.message };
+    }
+    if (error instanceof EngineBusyError) {
+      return { ok: false, stage: "busy", exitCode: null, message: error.message };
+    }
+    if (error instanceof EngineAbortedError) {
+      return { ok: false, stage: "cancelled", exitCode: null, message: error.message };
     }
     if (error instanceof EngineUnavailableError) {
       return { ok: false, stage: "engine", exitCode: null, message: error.message };
@@ -147,54 +138,100 @@ function guard<T extends { ok: boolean }>(fn: () => Promise<T>): Promise<T | Eng
   });
 }
 
+async function provenance(inputs: Record<string, string>, evidence: EvidenceManifest | null): Promise<RunProvenance> {
+  const engine = await engineIdentity();
+  if (!engine) throw new EngineUnavailableError("The engine disappeared while running.");
+  return {
+    inputs: Object.fromEntries(Object.entries(inputs).map(([name, content]) => [name, sha256(content)])),
+    engine,
+    evidence,
+  };
+}
+
 export type ProfileResult = { ok: true; profile: AssuranceProfile } | EngineFailure;
 
-export function loadProfile(): Promise<ProfileResult> {
+export function loadProfile(signal?: AbortSignal): Promise<ProfileResult> {
   return guard(async () => {
-    const command = display(["profile", "kong", "--format", "json"]);
-    const result = await execEngine(["profile", "kong", "--format", "json"]);
-    const profile = result.exitCode === 0 ? parseReport<AssuranceProfile>(result) : null;
-    if (!profile) return failure(result, command);
-    return { ok: true as const, profile };
+    const args = ["profile", "kong", "--format", "json"];
+    const accepted = accept(await execEngine(args, signal), display(args), {
+      validate: assuranceProfile,
+      verdictExits: [0],
+      exitFor: () => 0,
+    });
+    if (!accepted.ok) return accepted;
+    return { ok: true as const, profile: accepted.report };
   });
 }
 
-export function runVerify(body: Partial<VerifyRequest>): Promise<VerifyResponse> {
+/**
+ * Reads and cross-checks the evidence bundle of a frozen-contract run. The bundle
+ * must describe exactly the config that was sent and the verdict that was accepted.
+ */
+async function readEvidence(dir: string, config: string, verdict: string): Promise<EvidenceManifest | string> {
+  let manifest: EvidenceManifest;
+  try {
+    manifest = parseJson(await readFile(path.join(dir, "manifest.json"), "utf8"), evidenceManifest);
+  } catch (error) {
+    return `the evidence manifest is missing or invalid (${(error as Error).message})`;
+  }
+  if (manifest.config.sha256 !== sha256(config)) return "the evidence manifest describes a different config";
+  if (manifest.result !== verdict) return `the evidence manifest records ${manifest.result}, not ${verdict}`;
+  return manifest;
+}
+
+export function runVerify(body: Partial<VerifyRequest>, signal?: AbortSignal): Promise<VerifyResponse> {
   return guard(async () => {
     const config = document(body.config, "Config");
     const spec = parseSpec(body.spec);
     const files: Record<string, string> = { "config.yaml": config };
     if (spec.mode === "contract") files["contract.yaml"] = spec.contract;
 
-    return withWorkspace(files, async (paths) => {
+    return withWorkspace(files, async (paths, dir) => {
+      const evidenceDir = path.join(dir, "evidence");
       const argv = (file: (name: string) => string) => [
         "verify",
         file("config.yaml"),
-        ...(spec.mode === "contract" ? ["--contract", file("contract.yaml")] : propertyArgs(spec)),
+        ...(spec.mode === "contract"
+          ? ["--contract", file("contract.yaml"), "--evidence-dir", file("evidence")]
+          : propertyArgs(spec)),
         "--format",
         "json",
       ];
       const command = display(argv((name) => name));
-      const result = await execEngine(argv((name) => paths[name]));
-      const report = parseReport<VerifyReport>(result);
-      if (!report) return failure(result, command);
+      const result = await execEngine(argv((name) => paths[name] ?? evidenceDir), signal);
+      const accepted = acceptVerify(
+        result,
+        command,
+        spec.mode === "contract" ? { mode: "contract" } : { mode: "property", property: spec.property },
+      );
+      if (!accepted.ok) return accepted;
+
+      let evidence: EvidenceManifest | null = null;
+      if (spec.mode === "contract") {
+        const read = await readEvidence(evidenceDir, config, accepted.report.result);
+        if (typeof read === "string") {
+          return { ok: false as const, stage: "protocol" as const, exitCode: accepted.exitCode, command, message: `Rejected: ${read}.` };
+        }
+        evidence = read;
+      }
       return {
         ok: true as const,
-        exitCode: result.exitCode ?? -1,
-        report,
+        exitCode: accepted.exitCode,
+        report: accepted.report,
         durationMs: result.durationMs,
         command,
+        provenance: await provenance(files, evidence),
       };
     });
   });
 }
 
-export function runCompare(body: Partial<CompareRequest>): Promise<CompareResponse> {
+export function runCompare(body: Partial<CompareRequest>, signal?: AbortSignal): Promise<CompareResponse> {
   return guard(async () => {
     const before = document(body.before, "Before config");
     const after = document(body.after, "After config");
-    const mode = body.mode ?? "decision";
-    if (!COMPARE_MODES.includes(mode)) throw new InputError(`Unknown comparison mode "${mode}".`);
+    const mode = (body.mode ?? "decision") as CompareMode;
+    if (!COMPARE_MODES.includes(mode)) throw new InputError(`Unknown comparison mode "${String(mode)}".`);
     const contract = body.contract ? document(body.contract, "Contract") : undefined;
 
     const files: Record<string, string> = { "before.yaml": before, "after.yaml": after };
@@ -212,15 +249,16 @@ export function runCompare(body: Partial<CompareRequest>): Promise<CompareRespon
         "json",
       ];
       const command = display(argv((name) => name));
-      const result = await execEngine(argv((name) => paths[name]));
-      const report = parseReport<CompareReport | RepairReport>(result);
-      if (!report) return failure(result, command);
+      const result = await execEngine(argv((name) => paths[name]), signal);
+      const accepted = acceptCompare(result, command, mode, contract !== undefined);
+      if (!accepted.ok) return accepted;
       return {
         ok: true as const,
-        exitCode: result.exitCode ?? -1,
-        report,
+        exitCode: accepted.exitCode,
+        report: accepted.report,
         durationMs: result.durationMs,
         command,
+        provenance: await provenance(files, null),
       };
     });
   });

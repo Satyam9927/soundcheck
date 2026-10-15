@@ -16,6 +16,7 @@ import { useMemo, useRef, useState, type DragEvent } from "react";
 
 import type { Sample } from "@/lib/api";
 import {
+  BASIS_COPY,
   cellOutcome,
   DEFAULT_AUDIT_OPTIONS,
   resultKey,
@@ -24,6 +25,7 @@ import {
   type AuditEvent,
   type AuditOptions,
   type AuditRun,
+  type AuditStatus,
   type CellOutcome,
 } from "@/lib/audit";
 import { VERDICTS, type Tone } from "@/lib/domain";
@@ -38,7 +40,13 @@ import { Button, Eyebrow, Field, PageHeader, Panel, TONE_BG, TONE_TEXT, TONE_TIN
 
 type Phase = { status: "idle" } | { status: "running" } | { status: "done" } | { status: "error"; message: string };
 
-const STATUS_TONE: Record<string, Tone> = { pass: "proved", review: "vacuous", fail: "violated" };
+const STATUS_TONE: Record<AuditStatus, Tone> = {
+  pass: "proved",
+  "no-findings": "vacuous",
+  review: "vacuous",
+  incomplete: "unknown",
+  fail: "violated",
+};
 
 function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -131,29 +139,56 @@ export function AuditWorkspace({ contracts }: { contracts: Sample[] }) {
               results: {},
               startedAt,
               durationMs: null,
+              completion: "running",
+              failure: null,
+              provenance: event.provenance,
             });
           } else if (event.type === "result") {
             setRun((current) =>
               current && { ...current, results: { ...current.results, [resultKey(event.file, event.check)]: event.response } },
             );
           } else if (event.type === "done") {
-            finished = true;
-            setRun((current) => current && { ...current, durationMs: event.durationMs });
+            // Trust `done` only if it accounts for every planned check. totals()
+            // independently counts any cell still missing a result as pending.
+            const complete = event.completed === event.expected;
+            finished = complete;
+            setRun(
+              (current) =>
+                current && {
+                  ...current,
+                  durationMs: event.durationMs,
+                  completion: complete ? "complete" : "failed",
+                  failure: complete ? null : `Only ${event.completed} of ${event.expected} checks finished.`,
+                },
+            );
           } else if (event.type === "error") {
-            setPhase({ status: "error", message: event.message });
+            fail(event.message);
             return;
           }
         }
       }
-      setPhase(finished ? { status: "done" } : { status: "error", message: "The audit stream ended early." });
+      if (finished) setPhase({ status: "done" });
+      else fail("The audit stream ended before every check finished.");
     } catch (error) {
       if ((error as Error).name === "AbortError") return;
-      setPhase({ status: "error", message: "The request to the web server failed." });
+      fail("The request to the web server failed.");
     }
+  }
+
+  /** Ends the run as failed. Results so far are kept, but the run can never pass. */
+  function fail(message: string) {
+    setRun((current) => current && { ...current, completion: "failed", failure: message });
+    setPhase({ status: "error", message });
   }
 
   function cancel() {
     abort.current?.abort();
+    setRun(
+      (current) =>
+        current && current.completion === "running"
+          ? { ...current, completion: "cancelled", failure: "The audit was cancelled before every check ran." }
+          : current,
+    );
     setPhase({ status: "done" });
   }
 
@@ -332,15 +367,21 @@ export function AuditWorkspace({ contracts }: { contracts: Sample[] }) {
             bodyClassName="space-y-4 p-4"
           >
             <ul className="space-y-1.5 text-[13px]">
-              <li><span className="font-medium">No anonymous access</span> <span className="text-ink-2">under the protected prefix</span></li>
-              <li><span className="font-medium">Rate limit on public</span> <span className="text-ink-2">for every anonymously reachable route</span></li>
-              <li><span className="font-medium">No shadowed routes</span> <span className="text-ink-2">read from the config&rsquo;s own auth intent</span></li>
-              <li><span className="font-medium">Admin API not reachable</span> <span className="text-ink-2">from outside the trusted block</span></li>
+              <li className="text-2xs uppercase tracking-[0.06em] text-ink-3">{BASIS_COPY.exploratory.label}s</li>
+              <li><span className="font-medium">No anonymous access</span> <span className="text-ink-2">assumes everything under the prefix below must require auth</span></li>
+              <li><span className="font-medium">Rate limit on public</span> <span className="text-ink-2">assumes every anonymously reachable route should be rate limited</span></li>
+              <li><span className="font-medium">No shadowed routes</span> <span className="text-ink-2">assumes no route should be hidden by another</span></li>
+              <li><span className="font-medium">Admin API not reachable</span> <span className="text-ink-2">assumes only the trusted block below may reach it</span></li>
+              <li className="pt-1 text-2xs uppercase tracking-[0.06em] text-ink-3">{BASIS_COPY["frozen-contract"].label}</li>
               <li>
-                <span className="font-medium">Frozen contract</span>{" "}
-                <span className="text-ink-2">{contractName ? `from ${contractName}` : "optional, when you attach one"}</span>
+                <span className="font-medium">Your reviewed contract</span>{" "}
+                <span className="text-ink-2">{contractName ? `from ${contractName}` : "attach one to make a Pass possible"}</span>
               </li>
             </ul>
+            <p className="text-xs leading-relaxed text-ink-3">
+              Presets encode policy assumptions you choose here. They are for exploration and triage, not a substitute
+              for a human-reviewed frozen contract. Without one, a clean run reports &ldquo;No findings&rdquo;, never &ldquo;Pass&rdquo;.
+            </p>
             <div className="grid gap-3 sm:grid-cols-2">
               <Field
                 label="Protected path prefix"
@@ -426,7 +467,7 @@ export function AuditWorkspace({ contracts }: { contracts: Sample[] }) {
                     <p className="mt-0.5 text-[13px] text-ink-2">
                       {running
                         ? `${completed} of ${total} checks complete`
-                        : `${STATUS_COPY[summary.status].summary}${run.durationMs !== null ? ` Finished in ${(run.durationMs / 1000).toFixed(1)} s.` : ""}`}
+                        : `${STATUS_COPY[summary.status].summary}${run.failure ? ` ${run.failure}` : ""}${summary.pending > 0 ? ` ${summary.pending} of ${summary.checks} checks never ran.` : ""}${run.completion === "complete" && run.durationMs !== null ? ` Finished in ${(run.durationMs / 1000).toFixed(1)} s.` : ""}`}
                     </p>
                   </div>
                   <div className="flex gap-2">
@@ -486,8 +527,14 @@ export function AuditWorkspace({ contracts }: { contracts: Sample[] }) {
                           <tr>
                             <th scope="col" className="px-4 py-2 font-medium">File</th>
                             {run.checks.map((check) => (
-                              <th key={check.id} scope="col" className="px-2 py-2 font-medium" title={check.description}>
+                              <th
+                                key={check.id}
+                                scope="col"
+                                className="px-2 py-2 font-medium"
+                                title={[check.description, ...check.assumptions].join("\n")}
+                              >
                                 {check.label}
+                                <span className="block font-normal text-ink-3">{BASIS_COPY[check.basis].label}</span>
                               </th>
                             ))}
                           </tr>

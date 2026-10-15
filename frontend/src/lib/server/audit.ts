@@ -13,15 +13,17 @@ import {
 import { gateway as findGateway, type GatewayId } from "@/lib/gateways";
 
 import { loadSamples } from "./corpus";
+import { engineIdentity, sha256 } from "./engine";
 import { fieldProblem, loadProfile, runVerify } from "./operations";
 
-const LIMITS = {
+export const AUDIT_LIMITS = {
   uploadBytes: 25 * 1024 * 1024,
   entries: 2000,
   fileBytes: 512 * 1024,
   extractedBytes: 100 * 1024 * 1024,
   contractBytes: 64 * 1024,
 };
+const LIMITS = AUDIT_LIMITS;
 const WORKERS = 4;
 
 export class AuditInputError extends Error {}
@@ -29,6 +31,7 @@ export class AuditInputError extends Error {}
 interface Entry {
   path: string;
   bytes: number;
+  sha256: string | null;
   text: string | null;
 }
 
@@ -41,8 +44,17 @@ function decode(bytes: Uint8Array): string | null {
   return text.includes("\u0000") ? null : text;
 }
 
+function entry(path: string, data: Uint8Array): Entry {
+  return {
+    path,
+    bytes: data.length,
+    sha256: sha256(data),
+    text: data.length > LIMITS.fileBytes ? null : decode(data),
+  };
+}
+
 function classify(entry: Entry, index: number): AuditFile {
-  const base = { index, path: entry.path, bytes: entry.bytes };
+  const base = { index, path: entry.path, bytes: entry.bytes, sha256: entry.sha256 };
   const skipped = (reason: NonNullable<AuditFile["skip"]>["reason"], detail: string, gateway: GatewayId | null = null): AuditFile => ({
     ...base,
     status: "skipped",
@@ -51,18 +63,18 @@ function classify(entry: Entry, index: number): AuditFile {
   });
   const extension = entry.path.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] ?? "";
 
-  if (entry.bytes > LIMITS.fileBytes) return skipped("too-large", "Larger than 512 KB.");
-  if (entry.text === null) return skipped("unreadable", "Binary or unreadable content.");
+  if (entry.bytes > LIMITS.fileBytes) return skipped("too-large", "Larger than 512 KB, so it was not audited.");
+  if (entry.text === null) return skipped("unreadable", "Binary or unreadable content, so it was not audited.");
 
   if (["yaml", "yml", "json"].includes(extension)) {
     const kong = extension === "json" ? KONG_JSON.test(entry.text) : KONG_YAML.test(entry.text);
     return kong
       ? { ...base, status: "audit", gateway: "kong" }
-      : skipped("not-a-config", "No Kong services, routes or plugins found.");
+      : skipped("not-a-config", "No Kong services, routes or plugins recognised, so it was not audited.");
   }
   if (extension === "xml") {
     return REPOSE_XML.test(entry.text)
-      ? skipped("coming-soon", "Repose configuration. Repose support is coming soon.", "repose")
+      ? skipped("coming-soon", "Repose configuration. Repose is not supported yet, so it was not audited.", "repose")
       : skipped("unsupported-type", "XML that is not a recognised gateway configuration.");
   }
   return skipped("unsupported-type", extension ? `.${extension} is not a supported config format.` : "No file extension.");
@@ -86,7 +98,7 @@ function extractZip(bytes: Uint8Array): Entry[] {
         declared += file.originalSize;
         // Oversized entries are reported as skipped without being inflated.
         if (file.originalSize > LIMITS.fileBytes) {
-          oversized.push({ path: name, bytes: file.originalSize, text: null });
+          oversized.push({ path: name, bytes: file.originalSize, sha256: null, text: null });
           return false;
         }
         return entries <= LIMITS.entries && declared <= LIMITS.extractedBytes;
@@ -98,14 +110,9 @@ function extractZip(bytes: Uint8Array): Entry[] {
   if (entries > LIMITS.entries) throw new AuditInputError(`The zip has more than ${LIMITS.entries} files.`);
   if (declared > LIMITS.extractedBytes) throw new AuditInputError("The zip expands to more than 100 MB.");
 
-  return [
-    ...Object.entries(files).map(([path, data]) => ({
-      path,
-      bytes: data.length,
-      text: data.length > LIMITS.fileBytes ? null : decode(data),
-    })),
-    ...oversized,
-  ].sort((a, b) => a.path.localeCompare(b.path));
+  return [...Object.entries(files).map(([path, data]) => entry(path, data)), ...oversized].sort((a, b) =>
+    a.path.localeCompare(b.path),
+  );
 }
 
 async function sampleEntries(): Promise<Entry[]> {
@@ -113,7 +120,7 @@ async function sampleEntries(): Promise<Entry[]> {
   return configs.map((sample) => {
     const [kind, id] = sample.id.split(":");
     const path = kind === "case" ? `cases/${id}/config.yaml` : `workflows/frozen-admin/${id}`;
-    return { path, bytes: Buffer.byteLength(sample.content), text: sample.content };
+    return entry(path, new TextEncoder().encode(sample.content));
   });
 }
 
@@ -128,7 +135,7 @@ export interface PreparedAudit {
   contract: string | null;
 }
 
-export async function prepareAudit(form: FormData): Promise<PreparedAudit> {
+export async function prepareAudit(form: FormData, signal?: AbortSignal): Promise<PreparedAudit> {
   const gatewayId = text(form, "gateway") ?? "kong";
   const gateway = findGateway(gatewayId);
   if (!gateway) throw new AuditInputError(`Unknown gateway "${gatewayId}".`);
@@ -148,23 +155,27 @@ export async function prepareAudit(form: FormData): Promise<PreparedAudit> {
     contract = await contractFile.text();
   } else {
     contract = text(form, "contractText");
+    if (contract && Buffer.byteLength(contract) > LIMITS.contractBytes) {
+      throw new AuditInputError("The contract is larger than 64 KB.");
+    }
   }
   const contractKind = contract ? (contract.match(/^kind:\s*["']?([\w-]+)/m)?.[1] ?? null) : null;
   if (contract && !contractKind) throw new AuditInputError("The contract has no kind field.");
 
   let source: string;
+  let sourceSha256: string;
   let entries: Entry[];
   const upload = form.get("file");
   if (text(form, "source") === "samples") {
     source = "Soundcheck sample bundle";
     entries = await sampleEntries();
+    sourceSha256 = sha256(entries.map((item) => `${item.sha256}  ${item.path}\n`).join(""));
   } else if (upload instanceof File && upload.size > 0) {
     if (upload.size > LIMITS.uploadBytes) throw new AuditInputError("The upload is larger than 25 MB.");
     source = upload.name;
     const bytes = new Uint8Array(await upload.arrayBuffer());
-    entries = isZip(upload.name, bytes)
-      ? extractZip(bytes)
-      : [{ path: upload.name, bytes: bytes.length, text: bytes.length > LIMITS.fileBytes ? null : decode(bytes) }];
+    sourceSha256 = sha256(bytes);
+    entries = isZip(upload.name, bytes) ? extractZip(bytes) : [entry(upload.name, bytes)];
   } else {
     throw new AuditInputError("Choose a YAML, JSON or zip file to audit.");
   }
@@ -176,8 +187,10 @@ export async function prepareAudit(form: FormData): Promise<PreparedAudit> {
     if (file.status === "audit") configs.set(file.index, entries[file.index].text!);
   });
 
-  const profile = await loadProfile();
+  const profile = await loadProfile(signal);
   if (!profile.ok) throw new AuditInputError(profile.message);
+  const engine = await engineIdentity();
+  if (!engine) throw new AuditInputError("No Soundcheck engine found.");
 
   return {
     plan: {
@@ -189,24 +202,39 @@ export async function prepareAudit(form: FormData): Promise<PreparedAudit> {
       contract,
       checks: auditChecks(options, contractKind),
       files,
+      provenance: {
+        sourceSha256,
+        engine,
+        profile: profile.profile.id,
+        contractSha256: contract ? sha256(contract) : null,
+      },
     },
     configs,
     contract,
   };
 }
 
+/**
+ * Streams one NDJSON event per finished check. `done` is sent only when every
+ * planned check has a result; a cancelled or failed run ends without it, so a
+ * client can never mistake a partial run for a complete one.
+ */
 export function auditStream(prepared: PreparedAudit, signal: AbortSignal): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
-  let cancelled = false;
+  // Aborted when the client disconnects or the stream is cancelled; in-flight
+  // engine runs are killed rather than left to finish unobserved.
+  const stop = new AbortController();
+  const onAbort = () => stop.abort();
+  signal.addEventListener("abort", onAbort, { once: true });
 
   return new ReadableStream({
     async start(controller) {
       const send = (event: AuditEvent) => {
-        if (cancelled) return;
+        if (stop.signal.aborted) return;
         try {
           controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
         } catch {
-          cancelled = true;
+          stop.abort();
         }
       };
       const started = performance.now();
@@ -221,23 +249,36 @@ export function auditStream(prepared: PreparedAudit, signal: AbortSignal): Reada
       }
 
       let next = 0;
+      let completed = 0;
       const worker = async () => {
-        while (next < jobs.length && !cancelled && !signal.aborted) {
+        while (next < jobs.length && !stop.signal.aborted) {
           const job = jobs[next++];
-          const response = await runVerify({ config: job.config, spec: job.spec });
+          const response = await runVerify({ config: job.config, spec: job.spec }, stop.signal);
+          if (stop.signal.aborted) return;
+          completed++;
           send({ type: "result", file: job.file, check: job.check, response });
         }
       };
       try {
         await Promise.all(Array.from({ length: WORKERS }, worker));
-        send({ type: "done", durationMs: Math.round(performance.now() - started) });
+        if (completed === jobs.length) {
+          send({ type: "done", durationMs: Math.round(performance.now() - started), completed, expected: jobs.length });
+        } else if (!stop.signal.aborted) {
+          send({ type: "error", message: `Only ${completed} of ${jobs.length} checks finished.` });
+        }
       } catch (error) {
         send({ type: "error", message: (error as Error).message });
+      } finally {
+        signal.removeEventListener("abort", onAbort);
       }
-      if (!cancelled) controller.close();
+      try {
+        controller.close();
+      } catch {
+        // Already closed by a cancelled client.
+      }
     },
     cancel() {
-      cancelled = true;
+      stop.abort();
     },
   });
 }

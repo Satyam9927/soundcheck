@@ -135,3 +135,111 @@ jobs:
             soundcheck_status=$?
             test "$soundcheck_status" -eq 3
           fi
+
+  frontend:
+    # The web adapter's checks, plus a conformance run of its schema validators
+    # against the real CLI so engine/frontend drift fails here.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Z3 (4.16.0)
+        env:
+          SOUNDCHECK_Z3_ARCHIVE: z3-4.16.0-x64-glibc-2.39
+          SOUNDCHECK_Z3_SHA256: 7288c49a5bd6dbafd7b0b0d1f65956b91672da24b08f09242919af159be3418e
+        run: |
+          set -euo pipefail
+          soundcheck_z3_dir="$(mktemp -d "$RUNNER_TEMP/soundcheck-z3.XXXXXX")"
+          curl --fail --location --silent --show-error --retry 3 \
+            --connect-timeout 10 --max-time 120 \
+            "https://github.com/Z3Prover/z3/releases/download/z3-4.16.0/${SOUNDCHECK_Z3_ARCHIVE}.zip" \
+            --output "$soundcheck_z3_dir/z3.zip"
+          printf '%s  %s\n' "$SOUNDCHECK_Z3_SHA256" "$soundcheck_z3_dir/z3.zip" \
+            | sha256sum --check --strict
+          unzip -q "$soundcheck_z3_dir/z3.zip" -d "$soundcheck_z3_dir"
+          printf '%s\n' "$soundcheck_z3_dir/$SOUNDCHECK_Z3_ARCHIVE/bin" >> "$GITHUB_PATH"
+
+      - name: Set up OCaml
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: "5"
+
+      - name: Build the engine
+        run: |
+          opam install --yes dune yaml
+          opam exec -- dune build ./cli/main.exe
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+
+      - name: Lint, typecheck and test (including engine conformance)
+        working-directory: frontend
+        env:
+          SOUNDCHECK_TEST_BIN: ${{ github.workspace }}/_build/default/cli/main.exe
+        run: npm run check
+
+      - name: Production build
+        working-directory: frontend
+        run: npm run build
+
+  docker:
+    # Builds the pinned image with its own full test gate, then smoke-tests both
+    # modes and the HTTP trust boundary.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image (runs dune test and the frontend checks)
+        run: docker build --platform linux/amd64 --build-arg RUN_TESTS=1 -t soundcheck:ci .
+
+      - name: CLI mode preserves verdict exit codes
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD/bench/kong:/work:ro" soundcheck:ci \
+            verify cases/admin-key-auth/config.yaml --format json
+          if docker run --rm -v "$PWD/bench/kong:/work:ro" soundcheck:ci \
+               verify cases/admin-no-auth/config.yaml --format json; then
+            echo 'Expected a violation.' >&2
+            exit 1
+          else
+            test "$?" -eq 3
+          fi
+
+      - name: Web mode serves localhost only and validates engine output
+        run: |
+          set -euo pipefail
+          docker run -d --name soundcheck-web -p 127.0.0.1:3000:3000 soundcheck:ci
+          for _ in $(seq 1 60); do
+            curl --silent --fail http://127.0.0.1:3000/api/engine >/dev/null && break
+            sleep 1
+          done
+          curl --silent --fail http://127.0.0.1:3000/api/engine | jq -e '.available and .solver.available'
+          config="$(jq -Rs . < bench/kong/cases/admin-no-auth/config.yaml)"
+          curl --silent --fail -H 'content-type: application/json' \
+            -d "{\"config\":${config},\"spec\":{\"mode\":\"property\",\"property\":\"no-anonymous-access\",\"pathPrefix\":\"/admin\"}}" \
+            http://127.0.0.1:3000/api/verify \
+            | jq -e '.ok == true and .exitCode == 3 and .report.result == "violated" and (.provenance.engine.executableSha256 | length) == 64'
+          status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            -H 'host: attacker.example' http://127.0.0.1:3000/api/engine)"
+          test "$status" = 403
+          status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            -H 'content-type: application/json' -H 'origin: https://evil.example' \
+            -d '{}' http://127.0.0.1:3000/api/verify)"
+          test "$status" = 403
+
+      - name: Container logs
+        if: always()
+        run: docker logs soundcheck-web || true

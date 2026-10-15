@@ -4,7 +4,7 @@ import { CheckCircle2, CircleDashed, XCircle } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import type { CompareReport, Observation, RepairReport, ServiceTarget, Witness } from "@/lib/contract";
-import { isRepairReport } from "@/lib/contract";
+import { isRepairReport, type ComparisonKind, type REPAIR_COMPARISONS } from "@/lib/contract";
 import { COMPARE_OUTCOMES, VERDICTS, sentence, type Tone } from "@/lib/domain";
 
 import { CodeBlock, CopyButton, Eyebrow, Tabs, TONE_TEXT, ToneBadge } from "../ui";
@@ -15,10 +15,12 @@ const COMPARISON_LABEL: Record<string, string> = {
   security_decision: "Security-decision equivalence",
   route_service: "Route & service equivalence",
   service_target: "Service-target equivalence",
+  upstream_uri: "Upstream-URI equivalence",
   frozen_scope_preservation: "Frozen-scope repair",
   frozen_route_service_preservation: "Frozen-scope repair, route & service preserved",
   frozen_service_target_preservation: "Frozen-scope repair, service target preserved",
-};
+  frozen_upstream_uri_preservation: "Frozen-scope repair, upstream URI preserved",
+} satisfies Record<ComparisonKind | (typeof REPAIR_COMPARISONS)[number], string>;
 
 function target(value: ServiceTarget | null) {
   if (!value) return null;
@@ -33,6 +35,9 @@ function WitnessView({ witness, title }: { witness: Witness; title: string }) {
   ];
   if (witness.before.service_target || witness.after.service_target) {
     rows.push({ label: "Target", pick: (o) => target(o.service_target) });
+  }
+  if (witness.before.upstream_uri || witness.after.upstream_uri) {
+    rows.push({ label: "Upstream URI", pick: (o) => o.upstream_uri });
   }
   return (
     <section className="space-y-2.5">
