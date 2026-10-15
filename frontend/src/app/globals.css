@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+@custom-variant collapsed (&:where([data-sidebar="collapsed"] *));
 
 :root,
 [data-theme="light"] {

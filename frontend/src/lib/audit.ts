@@ -162,6 +162,8 @@ export interface AuditTotals {
   audited: number;
   skipped: number;
   coverageGaps: number;
+  /** Results whose config uses features outside the assurance profile. */
+  unsupported: number;
   /** Checks planned: audited files times checks. */
   checks: number;
   pending: number;
@@ -191,12 +193,17 @@ export const resultKey = (file: number, check: string) => `${file}:${check}`;
 export function totals(run: AuditRun): AuditTotals {
   const outcomes = { proved: 0, violated: 0, vacuous: 0, inconsistent: 0, unknown: 0, error: 0 };
   let pending = 0;
+  let unsupported = 0;
   const audited = run.files.filter((file) => file.status === "audit");
   for (const file of audited) {
     for (const check of run.checks) {
-      const outcome = cellOutcome(run.results[resultKey(file.index, check.id)]);
+      const response = run.results[resultKey(file.index, check.id)];
+      const outcome = cellOutcome(response);
       if (outcome === "pending") pending++;
       else outcomes[outcome]++;
+      // A verdict on a config the profile does not cover is not a clean result,
+      // whatever it says (the engine's compare treats Unsupported as fail-closed too).
+      if (response?.ok && response.report.assurance?.status === "unsupported") unsupported++;
     }
   }
   const coverageGaps = run.files.filter(
@@ -212,7 +219,7 @@ export function totals(run: AuditRun): AuditTotals {
       ? "fail"
       : run.completion !== "complete" || pending > 0 || planned === 0
         ? "incomplete"
-        : outcomes.unknown + outcomes.vacuous + outcomes.error > 0 || coverageGaps > 0
+        : outcomes.unknown + outcomes.vacuous + outcomes.error > 0 || coverageGaps > 0 || unsupported > 0
           ? "review"
           : contractBacked
             ? "pass"
@@ -222,6 +229,7 @@ export function totals(run: AuditRun): AuditTotals {
     audited: audited.length,
     skipped: run.files.length - audited.length,
     coverageGaps,
+    unsupported,
     checks: planned,
     pending,
     outcomes,
@@ -242,7 +250,7 @@ export const STATUS_COPY: Record<AuditStatus, { label: string; summary: string }
   review: {
     label: "Needs review",
     summary:
-      "No violations, but some checks returned no proof (unknown, vacuous or a tool error), or some files that may be configs could not be audited.",
+      "No violations, but some checks returned no proof (unknown, vacuous or a tool error), some configs use features outside the assurance profile, or some files that may be configs could not be audited.",
   },
   incomplete: {
     label: "Incomplete",

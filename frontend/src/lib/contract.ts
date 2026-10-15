@@ -184,6 +184,9 @@ export const repairReport = refine(
     if ((report.result === "unknown") !== (report.reason !== undefined)) {
       return "a reason must be present exactly when the result is unknown";
     }
+    if (report.contract_result.frozen_spec === null) {
+      return "a repair's contract_result must carry the frozen spec identity";
+    }
     const inner = report.contract_result.result;
     // Scope preservation is only judged once the frozen contract is proved.
     if ((report.result === "valid_repair" || report.result === "out_of_scope_regression") && inner !== "proved") {

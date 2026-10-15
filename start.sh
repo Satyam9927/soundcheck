@@ -20,7 +20,7 @@
 # The engine is a CLI invoked per request. The MCP server (`soundcheck mcp`) is
 # started on demand by the agent that uses it over stdio.
 
-set -euo pipefail
+set -Eeuo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FRONTEND="$ROOT/frontend"
@@ -59,9 +59,80 @@ fi
 
 case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) WINDOWS=1 ;; *) WINDOWS=0 ;; esac
 
-info() { printf '\033[1m==>\033[0m %s\n' "$*"; }
-warn() { printf '\033[33mwarning:\033[0m %s\n' "$*" >&2; }
-fail() { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
+
+# Plain ASCII so the banner and bars render the same in every terminal (Windows
+# consoles, macOS Terminal, Linux). Color only on a terminal, and never with NO_COLOR.
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+  C_BRAND=$'\033[36m' C_BOLD=$'\033[1m' C_DIM=$'\033[2m' C_RED=$'\033[31m' C_GREEN=$'\033[32m' C_YELLOW=$'\033[33m' C_OFF=$'\033[0m'
+else
+  C_BRAND="" C_BOLD="" C_DIM="" C_RED="" C_GREEN="" C_YELLOW="" C_OFF=""
+fi
+
+info() { printf '%s==>%s %s\n' "$C_BOLD" "$C_OFF" "$*"; }
+warn() { printf '%swarning:%s %s\n' "$C_YELLOW" "$C_OFF" "$*" >&2; }
+fail() { printf '%serror:%s %s\n' "$C_RED" "$C_OFF" "$*" >&2; FAILED_REPORTED=1; exit 1; }
+
+banner() {
+  printf '%s' "$C_BRAND"
+  cat <<'BANNER'
+                           _      _               _
+ ___  ___  _   _ _ __   __| | ___| |__   ___  ___| | __
+/ __|/ _ \| | | | '_ \ / _` |/ __| '_ \ / _ \/ __| |/ /
+\__ \ (_) | |_| | | | | (_| | (__| | | |  __/ (__|   <
+|___/\___/ \__,_|_| |_|\__,_|\___|_| |_|\___|\___|_|\_\
+BANNER
+  printf '%s' "$C_OFF"
+  printf '%s  solver-backed proof or counterexample for declarative security policy%s\n' "$C_DIM" "$C_OFF"
+  printf '%s  mode: %s   port: %s%s\n' "$C_DIM" "$1" "$PORT" "$C_OFF"
+}
+
+# "[#########---------------]" for $1 of $2.
+progress_bar() {
+  local width=24 filled
+  filled=$(( $2 > 0 ? $1 * width / $2 : 0 ))
+  printf '[%s%s]' "$(printf '%*s' "$filled" '' | tr ' ' '#')" "$(printf '%*s' $((width - filled)) '' | tr ' ' '-')"
+}
+
+STEP=0
+TOTAL_STEPS=1
+STEP_LABEL=""
+step() {
+  STEP=$((STEP + 1))
+  STEP_LABEL="$*"
+  printf '\n%s%s%s %s%d/%d  %s%s\n' "$C_BRAND" "$(progress_bar "$STEP" "$TOTAL_STEPS")" "$C_OFF" "$C_BOLD" "$STEP" "$TOTAL_STEPS" "$*" "$C_OFF"
+}
+
+finished() {
+  printf '\n%s%s%s %sdone  %s%s\n' "$C_GREEN" "$(progress_bar 1 1)" "$C_OFF" "$C_BOLD" "$*" "$C_OFF"
+}
+
+# Never exit on an error without saying so. `set -e` alone ends the script with
+# no message of its own, which looks like a silent failure (and, when the
+# script was double-clicked, closes the window before anything can be read).
+FAILED_REPORTED=0
+on_error() {
+  local status="$1" line="$2" command="$3"
+  [ "$FAILED_REPORTED" = 1 ] && return
+  FAILED_REPORTED=1
+  printf '\n%serror:%s start.sh failed (exit %s) at line %s while running:\n    %s\n' "$C_RED" "$C_OFF" \
+    "$status" "$line" "$command" >&2
+  printf 'See the output above for the cause. Nothing was started.\n' >&2
+}
+trap 'on_error "$?" "$LINENO" "$BASH_COMMAND"' ERR
+
+# A double-clicked script runs in its own window with no parent shell
+# (SHLVL 1); keep that window open on failure so the error stays readable.
+on_exit() {
+  local status=$?
+  if [ "$status" -ne 0 ] && [ "$STEP" -gt 0 ]; then
+    printf '\n%s%s %d/%d  failed: %s%s\n' "$C_RED" "$(progress_bar "$STEP" "$TOTAL_STEPS")" "$STEP" "$TOTAL_STEPS" "$STEP_LABEL" "$C_OFF" >&2
+  fi
+  if [ "$status" -ne 0 ] && [ "${SHLVL:-1}" -le 1 ] && [ -t 0 ] && [ -z "${SOUNDCHECK_NO_PAUSE:-}" ]; then
+    printf '\nPress Enter to close this window.' >&2
+    read -r _ || true
+  fi
+}
+trap on_exit EXIT
 
 # Paths handed to Windows-native programs (node, docker) must be Windows paths.
 native_path() {
@@ -94,17 +165,64 @@ running() {
 
 require_docker() {
   command -v docker >/dev/null 2>&1 || fail "Docker is not installed. Install it, or use --native with a local toolchain."
-  docker info >/dev/null 2>&1 || fail "the Docker daemon is not running. Start Docker Desktop (or dockerd), or use --native."
+  # `docker version` needs a server answer to print its version, unlike `docker
+  # info`, which can succeed with only client details. Bounded, because the CLI
+  # can hang while Docker Desktop is still starting.
+  # `timeout` is GNU coreutils (Linux, Git Bash); macOS has it only as Homebrew's
+  # `gtimeout`. Without either, the check simply runs unbounded.
+  local output status=0 bounded=() hint
+  if command -v timeout >/dev/null 2>&1; then bounded=(timeout 30)
+  elif command -v gtimeout >/dev/null 2>&1; then bounded=(gtimeout 30)
+  fi
+  output="$(${bounded[@]+"${bounded[@]}"} docker version --format '{{.Server.Version}}' 2>&1)" || status=$?
+  if [ "$status" -ne 0 ] || ! printf '%s' "$output" | grep -Eq '^[0-9]+\.[0-9]+'; then
+    if [ "$status" = 124 ]; then output="no answer from the Docker daemon within 30 s"; fi
+    if [ -n "$output" ]; then printf '%s\n' "$output" | sed '/^[[:space:]]*$/d; s/^/    docker: /' >&2; fi
+    if printf '%s' "$output" | grep -qi 'permission denied'; then
+      fail "Docker is running but this user cannot reach it. On Linux, add yourself to the docker group (sudo usermod -aG docker \"\$USER\", then log out and back in), or use rootless Docker. Or use --native."
+    fi
+    case "$(uname -s)" in
+      Darwin) hint="Start Docker Desktop (or Colima: colima start) and wait until it is running" ;;
+      Linux) hint="Start the daemon (sudo systemctl start docker) or Docker Desktop" ;;
+      *) hint="Start Docker Desktop and wait until it reports it is running" ;;
+    esac
+    fail "the Docker daemon is not running or not reachable. $hint, then rerun. Or use --native."
+  fi
+}
+
+# Runs `docker build`, keeping its output on screen and in a log. A BuildKit
+# snapshot/commit error means Docker Desktop's build cache holds a broken entry;
+# the build is retried once with --no-cache, which bypasses the cache without
+# deleting anything, before giving up with a specific hint.
+docker_build() {
+  local log="$RUN_DIR/docker-build.log" attempt extra=()
+  for attempt in 1 2; do
+    if docker build ${extra[@]+"${extra[@]}"} "$@" 2>&1 | tee "$log"; then
+      return 0
+    fi
+    if grep -Eq 'failed to commit|snapshot .* does not exist|failed to stat active key|failed to prepare extraction snapshot' "$log"; then
+      if [ "$attempt" = 1 ]; then
+        warn "Docker's build cache returned a snapshot error. Retrying once without the cache (slower, deletes nothing)."
+        extra=(--no-cache)
+        continue
+      fi
+      fail "Docker's build cache is in a bad state (snapshot/commit error, see $log). Restart Docker Desktop and rerun. If it persists, clear only the build cache with 'docker builder prune' (this keeps your images, containers and volumes)."
+    fi
+    fail "docker build failed (full output: $log). The first error in that log is the cause."
+  done
 }
 
 # Polls the UI until it answers; $1 is a command that fails once the server died.
 wait_until_ready() {
-  local alive_check="$1" url="http://localhost:$PORT" status
-  for _ in $(seq 1 90); do
+  local alive_check="$1" url="http://localhost:$PORT" status second=0 live=0
+  [ -t 1 ] && live=1
+  for second in $(seq 1 90); do
     if ! $alive_check; then
+      [ "$live" = 1 ] && printf '\r\033[K'
       return 1
     fi
     if status="$(curl -fsS "$url/api/engine" 2>/dev/null)"; then
+      [ "$live" = 1 ] && printf '\r\033[K'
       info "Soundcheck is running at $url"
       case "$status" in
         *'"available":true'*'"solver":{"available":true'*) info "Engine ready ($(printf '%s' "$status" | sed -n 's/.*"profile":"\([^"]*\)".*/\1/p'))" ;;
@@ -112,12 +230,16 @@ wait_until_ready() {
       esac
       return 0
     fi
+    # Redrawn in place on a terminal; silent when output is piped or logged.
+    [ "$live" = 1 ] && printf '\r  %s %s%2ds of up to 90s%s ' "$(progress_bar "$second" 90)" "$C_DIM" "$second" "$C_OFF"
     sleep 1
   done
+  [ "$live" = 1 ] && printf '\r\033[K'
   return 2
 }
 
 mkdir -p "$RUN_DIR"
+banner "$RUN_MODE"
 
 if running "$CONTAINER"; then
   info "Soundcheck is already running in Docker (container $CONTAINER). Use ./stop.sh first."
@@ -138,42 +260,57 @@ else
   port_busy && fail "port $PORT is already in use. Pick another with --port N."
 fi
 
+case "$RUN_MODE" in
+  docker) TOTAL_STEPS=4 ;;
+  dev) if [ "$REFRESH_ENGINE_ONLY" = 1 ]; then TOTAL_STEPS=3; else TOTAL_STEPS=6; fi ;;
+  native) if [ "$NEXT_MODE" = prod ]; then TOTAL_STEPS=5; else TOTAL_STEPS=4; fi ;;
+esac
+
 # --- docker mode: production image -------------------------------------------
 
 if [ "$RUN_MODE" = docker ]; then
+  step "Checking Docker"
   require_docker
-  info "Building image $IMAGE (cached layers make rebuilds fast)"
-  docker build --build-arg RUN_TESTS="$RUN_TESTS" -t "$IMAGE" "$ROOT"
+  step "Building image $IMAGE (cached layers make rebuilds fast)"
+  docker_build --build-arg RUN_TESTS="$RUN_TESTS" -t "$IMAGE" "$ROOT"
 
   # A stopped container with our name is a leftover from a previous run.
   docker rm "$CONTAINER" >/dev/null 2>&1 || true
 
-  info "Starting container $CONTAINER on port $PORT"
-  docker run -d --rm --name "$CONTAINER" -p "127.0.0.1:$PORT:3000" "$IMAGE" web >/dev/null
+  step "Starting container $CONTAINER on port $PORT"
+  # No --rm: a container that crashes on startup keeps its logs for the report
+  # below. The leftover is removed above on the next start, and by ./stop.sh.
+  docker run -d --name "$CONTAINER" -p "127.0.0.1:$PORT:3000" "$IMAGE" web >/dev/null \
+    || fail "could not start container $CONTAINER (see the docker error above)."
   echo docker >"$RUN_DIR/mode"
   echo "$PORT" >"$RUN_DIR/frontend.port"
 
   web_alive() { running "$CONTAINER"; }
+  step "Waiting for the web UI"
   if wait_until_ready web_alive; then
+    finished "Soundcheck is up"
     echo "    logs: docker logs -f $CONTAINER"
     echo "    cli:  ./soundcheck.sh verify <config.yaml> [...]"
     echo "    stop: ./stop.sh"
     exit 0
   fi
+  printf '\n--- last container log lines (docker logs %s) ---\n' "$CONTAINER" >&2
   docker logs --tail 30 "$CONTAINER" >&2 2>&1 || true
-  fail "the container did not become ready"
+  fail "the container did not become ready (it is kept for inspection; ./stop.sh removes it)"
 fi
 
 # --- dev mode: engine container ----------------------------------------------
 
 if [ "$RUN_MODE" = dev ]; then
+  step "Checking Docker"
   require_docker
-  info "Building the engine image $ENGINE_IMAGE (skips the web build)"
-  docker build --target engine-runtime --build-arg RUN_TESTS="$RUN_TESTS" -t "$ENGINE_IMAGE" "$ROOT"
+  step "Building the engine image $ENGINE_IMAGE (skips the web build)"
+  docker_build --target engine-runtime --build-arg RUN_TESTS="$RUN_TESTS" -t "$ENGINE_IMAGE" "$ROOT"
 
   WORKDIR="$RUN_DIR/engine-work"
   mkdir -p "$WORKDIR"
 
+  step "Starting the engine container"
   wanted="$(docker image inspect -f '{{.Id}}' "$ENGINE_IMAGE")"
   if running "$ENGINE_CONTAINER" && [ "$(docker inspect -f '{{.Image}}' "$ENGINE_CONTAINER")" = "$wanted" ]; then
     info "Reusing engine container $ENGINE_CONTAINER"
@@ -184,11 +321,12 @@ if [ "$RUN_MODE" = dev ]; then
     info "Starting engine container $ENGINE_CONTAINER"
     MSYS_NO_PATHCONV=1 docker run -d --rm --name "$ENGINE_CONTAINER" \
       ${USER_ARGS[@]+"${USER_ARGS[@]}"} \
-      -v "$(native_path "$WORKDIR"):/work/jobs" "$ENGINE_IMAGE" >/dev/null
+      -v "$(native_path "$WORKDIR"):/work/jobs" "$ENGINE_IMAGE" >/dev/null \
+      || fail "could not start engine container $ENGINE_CONTAINER (see the docker error above)."
   fi
 
   if [ "$REFRESH_ENGINE_ONLY" = 1 ]; then
-    info "Engine refreshed. The dev server on port $(cat "$RUN_DIR/frontend.port") picks it up on the next request."
+    finished "Engine refreshed. The dev server on port $(cat "$RUN_DIR/frontend.port") picks it up on the next request."
     exit 0
   fi
 
@@ -200,6 +338,7 @@ fi
 # --- native mode: engine -----------------------------------------------------
 
 if [ "$RUN_MODE" = native ]; then
+  step "Preparing the engine"
   if [ -n "${SOUNDCHECK_BIN:-}" ]; then
     info "Using engine from SOUNDCHECK_BIN=$SOUNDCHECK_BIN"
   elif [ "$BUILD_ENGINE" = 1 ]; then
@@ -224,23 +363,24 @@ command -v node >/dev/null 2>&1 || fail "Node.js is required (v20 or newer)."
 command -v npm >/dev/null 2>&1 || fail "npm is required."
 
 cd "$FRONTEND"
+step "Checking frontend dependencies"
 STAMP="node_modules/.soundcheck-installed"
 if [ ! -f "$STAMP" ] || [ package.json -nt "$STAMP" ] || [ package-lock.json -nt "$STAMP" ]; then
   info "Installing frontend dependencies"
-  npm install --no-audit --no-fund
+  npm install --no-audit --no-fund || fail "npm install failed in $FRONTEND (see the output above)."
   touch "$STAMP"
 fi
 
 NEXT="node_modules/next/dist/bin/next"
 if [ "$NEXT_MODE" = "prod" ]; then
-  info "Building the web app for production"
-  node "$NEXT" build
+  step "Building the web app for production"
+  node "$NEXT" build || fail "the production build failed (see the output above)."
   ARGS=(start -H 127.0.0.1 -p "$PORT")
 else
   ARGS=(dev -H 127.0.0.1 -p "$PORT")
 fi
 
-info "Starting the web app (next $([ "$NEXT_MODE" = prod ] && echo start || echo dev)) on port $PORT"
+step "Starting the web app (next $([ "$NEXT_MODE" = prod ] && echo start || echo dev)) on port $PORT"
 export SOUNDCHECK_REPO="$(native_path "$ROOT")"
 nohup node "$NEXT" "${ARGS[@]}" >"$LOG_FILE" 2>&1 &
 PID=$!
@@ -253,7 +393,9 @@ echo "$PORT" >"$RUN_DIR/frontend.port"
 
 native_alive() { pid_alive "$PID"; }
 
+step "Waiting for the web UI"
 if wait_until_ready native_alive; then
+  finished "Soundcheck is up"
   [ "$RUN_MODE" = dev ] && echo "    live: edits under frontend/ reload instantly; rerun ./start.sh --dev to refresh the engine"
   echo "    pid:  $PID"
   echo "    logs: $LOG_FILE"

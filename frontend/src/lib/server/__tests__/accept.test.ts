@@ -1,6 +1,10 @@
+import { createHash } from "node:crypto";
+
 import { describe, expect, it } from "vitest";
 
-import { acceptCompare, acceptVerify } from "../accept";
+import type { EvidenceManifest, VerifyReport } from "@/lib/contract";
+
+import { acceptCompare, acceptVerify, checkEvidence } from "../accept";
 import type { RunResult } from "../engine";
 
 function run(overrides: Partial<RunResult>): RunResult {
@@ -275,5 +279,68 @@ describe("acceptCompare", () => {
 
   it("rejects a plain comparison where a repair report was requested", () => {
     expect(compare(equivalent, 0, "decision", true).ok).toBe(false);
+  });
+});
+
+describe("checkEvidence", () => {
+  const config = "services: []\n";
+  const canonical = '{"schema_version":1,"kind":"authenticated-access","scope":{"path_prefix":"/admin","method":"GET","host":null}}';
+  const report = {
+    ...proved,
+    property: "authenticated-access",
+    assurance: { profile: "kong-3.x-v1", status: "within_profile" as const, findings: [] },
+    frozen_spec: { schema_version: 1, kind: "authenticated-access", canonical },
+  } as unknown as VerifyReport;
+  const stdout = `${JSON.stringify(report)}\n`;
+  const hash = (text: string) => createHash("sha256").update(text).digest("hex");
+  const manifest = {
+    schema_version: 1,
+    config: { sha256: hash(config), size_bytes: config.length },
+    contract: { path: "contract.json", sha256: hash(`${canonical}\n`) },
+    assurance_profile: { id: "kong-3.x-v1", artifact: { path: "assurance-profile.json", sha256: "0".repeat(64) } },
+    soundcheck: { executable_sha256: "f".repeat(64), ocaml_version: "5.2.0", report_schema_version: 9 },
+    solver: { name: "z3", version: "Z3 version 4.16.0 - 64 bit", version_error: null },
+    obligation_plan: {},
+    obligations: [],
+    report: { path: "report.json", sha256: hash(stdout) },
+    result: "proved",
+  } as unknown as EvidenceManifest;
+
+  it("accepts a bundle that matches the accepted run exactly", () => {
+    expect(checkEvidence(manifest, { config, stdout, report })).toBeNull();
+  });
+
+  it("rejects a bundle for different config bytes", () => {
+    expect(checkEvidence(manifest, { config: `${config} `, stdout, report })).toMatch(/different config/);
+  });
+
+  it("rejects a bundle for a different printed report", () => {
+    expect(checkEvidence(manifest, { config, stdout: `${stdout} `, report })).toMatch(/different report/);
+  });
+
+  it("rejects a bundle for a different contract", () => {
+    const other = { ...report, frozen_spec: { ...report.frozen_spec!, canonical: `${canonical} ` } } as VerifyReport;
+    expect(checkEvidence(manifest, { config, stdout, report: other })).toMatch(/different contract/);
+  });
+
+  it("rejects a bundle that records a different verdict or profile", () => {
+    expect(checkEvidence({ ...manifest, result: "violated" }, { config, stdout, report })).toMatch(/records violated/);
+    const profile = { ...manifest, assurance_profile: { ...manifest.assurance_profile, id: "other" } };
+    expect(checkEvidence(profile, { config, stdout, report })).toMatch(/names profile other/);
+  });
+});
+
+describe("repair reports", () => {
+  it("rejects a repair whose contract_result lacks the frozen spec identity", () => {
+    const repair = {
+      result: "valid_repair",
+      schema_version: 1,
+      comparison: "frozen_scope_preservation",
+      assurance_profile: "kong-3.x-v1",
+      frozen_spec: { schema_version: 1, kind: "authenticated-access", scope: { path_prefix: "/admin", method: null, host: null } },
+      contract_result: { ...proved, property: "authenticated-access" },
+      witness: null,
+    };
+    expect(compare(repair, 0, "decision", true).ok).toBe(false);
   });
 });

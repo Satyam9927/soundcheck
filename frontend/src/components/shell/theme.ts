@@ -19,3 +19,8 @@ export function applyPreference(preference: ThemePreference) {
     (preference === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
   document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
 }
+
+export const SIDEBAR_KEY = "soundcheck-sidebar";
+
+/** Applied before first paint so a collapsed sidebar never flashes open. */
+export const SIDEBAR_BOOTSTRAP = `(function(){try{if(localStorage.getItem("${SIDEBAR_KEY}")==="collapsed")document.documentElement.setAttribute("data-sidebar","collapsed")}catch(e){}})()`;

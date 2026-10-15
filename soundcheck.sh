@@ -29,8 +29,17 @@ case "$(uname -s)" in
     ;;
 esac
 
+# Diagnostics go to stderr: stdout carries the engine's output (and MCP's stdio).
+if ! command -v docker >/dev/null 2>&1; then
+  echo "soundcheck: Docker is not installed. Install Docker, or build the engine locally with dune." >&2
+  exit 125
+fi
+if ! docker version --format '{{.Server.Version}}' >/dev/null 2>&1; then
+  echo "soundcheck: the Docker daemon is not running or not reachable. Start Docker Desktop (or dockerd) and retry." >&2
+  exit 125
+fi
 if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
-  echo "soundcheck: image $IMAGE not found. Build it with ./start.sh --docker or: docker build -t $IMAGE ." >&2
+  echo "soundcheck: image $IMAGE not found. Build it with ./start.sh (or: docker build -t $IMAGE .)." >&2
   exit 125
 fi
 

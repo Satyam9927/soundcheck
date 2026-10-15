@@ -1,19 +1,27 @@
 import type { Metadata } from "next";
-import { Instrument_Sans, JetBrains_Mono } from "next/font/google";
+import localFont from "next/font/local";
 
 import { AppShell } from "@/components/shell/app-shell";
-import { THEME_BOOTSTRAP } from "@/components/shell/theme";
+import { SIDEBAR_BOOTSTRAP, THEME_BOOTSTRAP } from "@/components/shell/theme";
 
 import "./globals.css";
 
-const instrument = Instrument_Sans({
+// Self-hosted from the pinned @fontsource-variable packages (SIL OFL 1.1), so
+// builds need no network access to Google Fonts and are reproducible.
+const instrument = localFont({
   variable: "--font-instrument",
-  subsets: ["latin"],
+  src: "../../node_modules/@fontsource-variable/instrument-sans/files/instrument-sans-latin-wght-normal.woff2",
+  weight: "400 700",
+  style: "normal",
+  display: "swap",
 });
 
-const jetbrains = JetBrains_Mono({
+const jetbrains = localFont({
   variable: "--font-jetbrains",
-  subsets: ["latin"],
+  src: "../../node_modules/@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2",
+  weight: "100 800",
+  style: "normal",
+  display: "swap",
 });
 
 export const metadata: Metadata = {
@@ -31,7 +39,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${instrument.variable} ${jetbrains.variable} antialiased`}
     >
       <head>
-        <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP }} />
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP + SIDEBAR_BOOTSTRAP }} />
       </head>
       <body>
         <AppShell>{children}</AppShell>

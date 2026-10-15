@@ -6,9 +6,11 @@ import { useState } from "react";
 import type { AssuranceProfile, ProfileFeature } from "@/lib/contract";
 import type { Tone } from "@/lib/domain";
 
-import { CopyButton, TONE_BG, TONE_TEXT } from "../ui";
+import { CopyButton, Tabs, TONE_BG, TONE_TEXT } from "../ui";
 
-const GROUPS: { key: "modeled" | "conservative" | "unsupported"; title: string; tone: Tone; meaning: string }[] = [
+type GroupKey = "modeled" | "conservative" | "unsupported";
+
+const GROUPS: { key: GroupKey; title: string; tone: Tone; meaning: string }[] = [
   {
     key: "modeled",
     title: "Modeled",
@@ -31,6 +33,7 @@ const GROUPS: { key: "modeled" | "conservative" | "unsupported"; title: string; 
 
 export function ProfileView({ profile }: { profile: AssuranceProfile }) {
   const [query, setQuery] = useState("");
+  const [tab, setTab] = useState<GroupKey>("modeled");
   const needle = query.trim().toLowerCase();
   const match = (feature: ProfileFeature) =>
     !needle || feature.code.includes(needle) || feature.description.toLowerCase().includes(needle);
@@ -53,7 +56,13 @@ export function ProfileView({ profile }: { profile: AssuranceProfile }) {
         {GROUPS.map((group) => {
           const count = profile[group.key].length;
           return (
-            <a key={group.key} href={`#${group.key}`} className="group bg-surface p-5 transition-colors hover:bg-surface-2">
+            <button
+              key={group.key}
+              type="button"
+              onClick={() => setTab(group.key)}
+              aria-pressed={tab === group.key}
+              className={`group bg-surface p-5 text-left transition-colors hover:bg-surface-2 ${tab === group.key ? "bg-surface-2" : ""}`}
+            >
               <div className="flex items-center gap-2">
                 <span className={`size-2 rounded-full ${TONE_BG[group.tone]}`} />
                 <p className="text-[13px] font-medium">{group.title}</p>
@@ -63,34 +72,50 @@ export function ProfileView({ profile }: { profile: AssuranceProfile }) {
                 <div className={`h-full ${TONE_BG[group.tone]}`} style={{ width: `${(count / total) * 100}%` }} />
               </div>
               <p className="mt-3 text-xs leading-snug text-ink-2">{group.meaning}</p>
-            </a>
+            </button>
           );
         })}
       </section>
 
-      <div className="relative max-w-sm">
-        <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-ink-3" />
-        <input
-          type="search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Filter features"
-          aria-label="Filter features"
-          className="h-8 w-full rounded-md border border-line bg-surface pl-8 pr-3 text-[13px] outline-none placeholder:text-ink-3 hover:border-line-strong focus:border-ink"
-        />
-      </div>
+      <section className="overflow-hidden rounded-xl border border-line bg-surface shadow-card">
+        <div className="flex flex-col gap-3 border-b border-line px-4 sm:flex-row sm:items-center sm:justify-between">
+          <Tabs
+            label="Profile features"
+            value={tab}
+            onChange={setTab}
+            tabs={GROUPS.map((group) => ({
+              value: group.key,
+              label: (
+                <span className="flex items-center gap-2">
+                  <span className={`size-2 rounded-full ${TONE_BG[group.tone]}`} />
+                  {group.title}
+                  <span className="font-mono text-2xs text-ink-3">{profile[group.key].filter(match).length}</span>
+                </span>
+              ),
+            }))}
+          />
+          <div className="relative w-full pb-3 sm:max-w-xs sm:pb-0">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-ink-3 sm:top-1/2" />
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Filter features"
+              aria-label="Filter features"
+              className="h-8 w-full rounded-md border border-line bg-surface pl-8 pr-3 text-[13px] outline-none placeholder:text-ink-3 hover:border-line-strong focus:border-ink"
+            />
+          </div>
+        </div>
 
-      {GROUPS.map((group) => {
-        const features = profile[group.key].filter(match);
-        return (
-          <section key={group.key} id={group.key} className="scroll-mt-6">
-            <div className="mb-2 flex items-baseline gap-2">
-              <h2 className={`text-[13px] font-semibold ${TONE_TEXT[group.tone]}`}>{group.title}</h2>
-              <span className="font-mono text-2xs text-ink-3">{features.length}</span>
-            </div>
-            <div className="overflow-hidden rounded-xl border border-line bg-surface shadow-card">
+        {GROUPS.filter((group) => group.key === tab).map((group) => {
+          const features = profile[group.key].filter(match);
+          return (
+            <div key={group.key} role="tabpanel" aria-label={group.title} className="animate-reveal">
+              <p className="border-b border-line bg-surface-2 px-4 py-2.5 text-xs text-ink-2">{group.meaning}</p>
               {features.length === 0 ? (
-                <p className="px-4 py-3 text-[13px] text-ink-3">No matching features.</p>
+                <p className="px-4 py-3 text-[13px] text-ink-3">
+                  {needle ? "No matching features in this group." : "No features in this group."}
+                </p>
               ) : (
                 <ul className="divide-y divide-line">
                   {features.map((feature) => (
@@ -102,9 +127,9 @@ export function ProfileView({ profile }: { profile: AssuranceProfile }) {
                 </ul>
               )}
             </div>
-          </section>
-        );
-      })}
+          );
+        })}
+      </section>
     </div>
   );
 }

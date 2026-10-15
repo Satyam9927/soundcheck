@@ -109,3 +109,16 @@ describe("RunQueue", () => {
     queue.release();
   });
 });
+
+describe("capture with orphaned output pipes", () => {
+  it("still ends when a wrapper exits but its child keeps the pipes open", async () => {
+    // The wrapper starts a child that inherits stdout/stderr, then exits at once.
+    // The child exits on its own after 15 s so it never outlives the test run.
+    const grandchild = "setTimeout(() => process.exit(0), 15000)";
+    const wrapper = `require("child_process").spawn(process.execPath, ["-e", ${JSON.stringify(grandchild)}], { stdio: "inherit" }); process.exit(0);`;
+    const started = performance.now();
+    const result = await capture(node, ["-e", wrapper], { timeoutMs: 300, killGraceMs: 300 });
+    expect(performance.now() - started).toBeLessThan(10_000);
+    expect(acceptVerify(result, "x", { mode: "property", property: "no-anonymous-access" }).ok).toBe(false);
+  });
+});

@@ -19,13 +19,25 @@ verdict, counterexample and assurance finding comes from the engine unchanged.
 One image holds the engine binary, Z3 and the web server. The image build runs the
 full `dune test` gate and the frontend checks, so a failing engine or adapter never
 ships. Base images are pinned by digest and Z3 is the checksum-verified 4.16.0 release
-used by the repository's CI, so the image verifies with the same solver as CI. The
-image is linux/amd64 because that Z3 archive is x86-64 only.
+used by the repository's CI, so the image verifies with the same solver as CI.
+
+It works the same on Linux, macOS and Windows, and builds natively for both x86-64
+and arm64 (Apple Silicon), picking the matching pinned Z3 build. On Windows, run the
+scripts from Git Bash or WSL. The build also runs the frontend's conformance tests
+against the freshly built engine. Fonts are self-hosted, so it needs no access to
+Google Fonts.
 
 ```bash
 ./start.sh                 # build the image, run the UI on :3000   (--port N, --skip-tests)
 ./stop.sh                  # stop the container (images and volumes are left alone)
 ```
+
+If something fails, `start.sh` says what and where, and never exits silently: an
+unreachable Docker daemon gets a platform-specific hint (including the Linux docker
+group case), and the build output is kept in `.run/docker-build.log`. If Docker's build
+cache is corrupt (a "snapshot ... does not exist" error), it retries once with
+`--no-cache`, which deletes nothing. When launched by double-click, the window stays
+open on failure.
 
 The same image is the CLI. `soundcheck.sh` runs a short-lived container per command
 with the current directory mounted, so relative paths work and the engine's exit codes
@@ -131,7 +143,8 @@ closed.
 5. The document answers the question that was asked: the same property, the requested
    comparison mode, a frozen-spec identity for contract runs and none otherwise.
 6. Frozen-contract runs also write the engine's evidence bundle, whose manifest must
-   describe the same config bytes and the same verdict.
+   hash the same config bytes, the exact report printed on stdout and the contract's
+   canonical identity, and record the same verdict and assurance profile.
 
 The TypeScript types are inferred from those validators, so each wire shape is written
 down once. CI runs the validators against the real CLI for every property and
@@ -139,8 +152,9 @@ comparison mode, and against every golden report in `bench/kong/cases`.
 
 **HTTP.** The service has no authentication and is built for one operator on their own
 machine. It binds to `127.0.0.1` (`npm run dev`, `npm run start`, `./start.sh`, and the
-documented `docker run -p 127.0.0.1:...`). Requests must name an allowed host, which
-defeats DNS rebinding, and writes from another origin are refused. Request bodies are
+documented `docker run -p 127.0.0.1:...`). Every request, to a page or the API, must
+name an allowed host (`src/proxy.ts`), which defeats DNS rebinding, and writes from
+another origin are refused. Request bodies are
 size-limited while they stream, before they are buffered. The solver queue is bounded,
 and a client that disconnects cancels its runs, including queued ones and an audit's
 in-flight checks. Before serving anyone else, put real authentication in front and add
@@ -154,7 +168,7 @@ The audit reports exactly one of these outcomes:
 |---|---|
 | Fail | Some check found a concrete violation (or the contract is inconsistent). A violation stands even if the run did not finish. |
 | Incomplete | The run was cancelled, failed, or ended early; some check never ran; or nothing was checked. Never a pass. |
-| Needs review | Every check ran, but some returned unknown, vacuous or a tool error, or a file that may be a config was skipped (too large, unreadable, an unrecognised YAML or JSON file, or an unsupported gateway). |
+| Needs review | Every check ran, but some returned unknown, vacuous or a tool error, some config uses features outside the assurance profile, or a file that may be a config was skipped (too large, unreadable, an unrecognised YAML or JSON file, or an unsupported gateway). |
 | No findings (exploratory) | Every exploratory preset was proved everywhere, but no frozen contract was attached. |
 | Pass | All of the above is clean and a frozen contract was attached and proved for every config. |
 
