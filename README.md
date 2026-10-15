@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/soundcheck-logo.png" alt="" width="144">
+  <img src="docs/assets/soundcheck-logo-readme.png" alt="" width="160">
 </p>
 
 <h1 align="center">Soundcheck</h1>
@@ -9,10 +9,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ph0smet/soundcheck/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://github.com/ph0smet/soundcheck/actions/workflows/ci.yml/badge.svg?branch=main&amp;event=push" alt="CI status on main"></a>
-  <a href="https://ocaml.org/"><img src="https://img.shields.io/badge/OCaml-5.0%2B-EC6813?logo=ocaml&amp;logoColor=white" alt="OCaml 5.0 or newer"></a>
-  <a href="https://github.com/Z3Prover/z3"><img src="https://img.shields.io/badge/solver-Z3-137CBD" alt="Solver: Z3"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-009C95" alt="License: MIT"></a>
+  <a href="https://github.com/ph0smet/soundcheck/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://github.com/ph0smet/soundcheck/actions/workflows/ci.yml/badge.svg?branch=main&amp;event=push" alt="CI status on main" height="20"></a>
+  <a href="https://ocaml.org/"><img src="https://img.shields.io/badge/OCaml-5.0%2B-EC6813?logo=ocaml&amp;logoColor=white" alt="OCaml 5.0 or newer" height="20"></a>
+  <a href="https://github.com/Z3Prover/z3"><img src="https://img.shields.io/badge/solver-Z3-137CBD" alt="Solver: Z3" height="20"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-009C95" alt="License: MIT" height="20"></a>
 </p>
 
 <p align="center">
@@ -38,9 +38,8 @@ tools all consume the same verifier results.
 > A `PROVED` result is relative to the asserted property or frozen contract,
 > Soundcheck's versioned target model, and explicit assumptions. It is not a
 > certification of every Kong deployment. Unsupported semantics fail closed as
-> `unknown`; conservative
-> counterexamples are investigation candidates, not guaranteed live-gateway
-> reproductions.
+> `unknown`; conservative counterexamples are investigation candidates, not
+> guaranteed live-gateway reproductions.
 
 ```console
 $ dune exec soundcheck -- verify \
