@@ -1,0 +1,112 @@
+name: Bug report
+description: Report an incorrect result, crash, integration problem, or documentation defect
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. Public issues are visible to everyone.
+        Use a minimal sanitized policy: remove credentials, production hostnames,
+        customer identifiers, evidence bundles, and confidential counterexamples.
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Affected surface
+      options:
+        - CLI
+        - MCP
+        - GitHub Action
+        - Kong analysis or conformance
+        - JSON or GitHub output
+        - Build, tests, or documentation
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Problem category
+      options:
+        - Apparent incorrect proof
+        - Invalid or misleading counterexample
+        - Unexpected unknown or unsupported result
+        - Crash or input-handling failure
+        - Integration or setup problem
+        - Documentation defect
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Soundcheck version
+      description: Provide the release, full commit SHA, or branch and commit.
+      placeholder: "commit 0123456789abcdef..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened? Include the verdict and exit code.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What result did you expect, and why?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal sanitized reproduction
+      description: Include the exact command, a minimal config/contract fragment, and reproduction steps.
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Complete output
+      description: Include the human or JSON report, assurance findings, stderr, and exit code. Remove sensitive data first.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include OS/architecture and OCaml, Dune, and Z3 versions. If relevant, include Kong version and router flavor.
+      placeholder: |
+        OS/architecture:
+        OCaml:
+        Dune:
+        Z3:
+        Kong/router:
+    validations:
+      required: true
+
+  - type: textarea
+    id: target_observation
+    attributes:
+      label: Independent target observation
+      description: For a suspected Kong semantic mismatch, describe what the real target did and how you observed it.
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmations
+      options:
+        - label: I searched existing issues for this problem.
+          required: true
+        - label: I removed secrets, production policy, customer data, and other confidential information.
+          required: true

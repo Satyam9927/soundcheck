@@ -1,0 +1,78 @@
+name: Feature request
+description: Propose a formalizable property, target capability, integration, or usability improvement
+title: "[Feature]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Soundcheck is useful when the desired behavior can be stated precisely.
+        For verification features, describe the decision question, target
+        semantics, assumptions, and expected fail-closed boundary.
+        Public issues are visible to everyone, so remove credentials, production
+        policy, customer identifiers, and other confidential information.
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - Invariant or frozen contract
+        - Kong semantic coverage
+        - New connector
+        - Integration or output
+        - Developer experience or documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What concrete problem should this solve, and who encounters it?
+    validations:
+      required: true
+
+  - type: textarea
+    id: desired
+    attributes:
+      label: Precise desired behavior
+      description: For verification, write the property as a decision question. For tooling or docs, give concrete acceptance criteria.
+      placeholder: "For every request ..., should Soundcheck prove or reject ...?"
+    validations:
+      required: true
+
+  - type: input
+    id: target
+    attributes:
+      label: Target and version
+      description: Name the policy system, version, router/mode, or integration environment if applicable.
+      placeholder: "Kong OSS 3.9.3, traditional router"
+
+  - type: textarea
+    id: example
+    attributes:
+      label: Sanitized example and expected result
+      description: Show the smallest representative policy/request and the verdict or output you expect.
+
+  - type: textarea
+    id: soundness
+    attributes:
+      label: Assumptions and support boundary
+      description: For verification features, which semantics must be modeled, what assumptions are external, and what should become unknown or unsupported?
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Existing alternatives
+      description: How do you handle this today, and why is the current capability insufficient?
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmations
+      options:
+        - label: I checked existing issues and the roadmap for related work.
+          required: true
+        - label: I removed secrets, production policy, customer data, and other confidential information.
+          required: true
