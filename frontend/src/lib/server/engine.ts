@@ -71,8 +71,10 @@ async function exists(file: string) {
  * bridge) spawn grandchildren, so killing only the direct child is not enough.
  */
 function killTree(child: ChildProcess, signal: NodeJS.Signals) {
-  if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) return;
+  if (child.pid === undefined) return;
   if (process.platform === "win32") {
+    // taskkill needs the parent to walk the tree, so there is nothing to do once it is gone.
+    if (child.exitCode !== null || child.signalCode !== null) return;
     // Windows has no process groups or SIGTERM; terminate the whole tree.
     spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" }).on(
       "error",
@@ -80,10 +82,12 @@ function killTree(child: ChildProcess, signal: NodeJS.Signals) {
     );
     return;
   }
+  // Signal the group even if the direct child already exited: a wrapper can exit
+  // while a grandchild it started still runs and holds the output pipes.
   try {
     process.kill(-child.pid, signal);
   } catch {
-    child.kill(signal);
+    if (child.exitCode === null && child.signalCode === null) child.kill(signal);
   }
 }
 
@@ -120,10 +124,20 @@ export function capture(command: string, args: string[], options: CaptureOptions
     let outputExceeded = false;
     let aborted = false;
     let killTimer: NodeJS.Timeout | undefined;
+    let abandonTimer: NodeJS.Timeout | undefined;
 
+    // SIGTERM, then SIGKILL after the grace period. If the pipes are still open a
+    // grace period after that (something outside the tree holds them), stop
+    // waiting for them so the run, and its queue slot, always ends.
     const stop = () => {
       killTree(child, "SIGTERM");
-      killTimer ??= setTimeout(() => killTree(child, "SIGKILL"), grace);
+      killTimer ??= setTimeout(() => {
+        killTree(child, "SIGKILL");
+        abandonTimer = setTimeout(() => {
+          child.stdout?.destroy();
+          child.stderr?.destroy();
+        }, grace);
+      }, grace);
     };
     const timer = setTimeout(() => {
       timedOut = true;
@@ -151,6 +165,7 @@ export function capture(command: string, args: string[], options: CaptureOptions
     const cleanup = () => {
       clearTimeout(timer);
       clearTimeout(killTimer);
+      clearTimeout(abandonTimer);
       options.signal?.removeEventListener("abort", onAbort);
     };
     child.on("error", (error) => {

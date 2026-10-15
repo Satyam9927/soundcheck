@@ -150,6 +150,19 @@ describe("audit status", () => {
     expect(totals(run).status).toBe("pass");
   });
 
+  it("needs review when a proof is about a config outside the assurance profile", () => {
+    const run = makeRun({ contract: true });
+    const cell = run.results[resultKey(0, "contract")];
+    if (!cell.ok) throw new Error("fixture");
+    run.results[resultKey(0, "contract")] = {
+      ...cell,
+      report: { ...cell.report, assurance: { profile: "kong-3.x-v1", status: "unsupported", findings: [] } },
+    };
+    const sum = totals(run);
+    expect(sum.status).toBe("review");
+    expect(sum.unsupported).toBe(1);
+  });
+
   it("needs review for unknown, vacuous or error outcomes", () => {
     expect(totals(makeRun({ contract: true, fill: "unknown" })).status).toBe("review");
     expect(totals(makeRun({ contract: true, fill: "vacuous" })).status).toBe("review");

@@ -16,10 +16,16 @@ import {
   type VerifyRequest,
   type VerifyResponse,
 } from "@/lib/api";
-import { assuranceProfile, evidenceManifest, type AssuranceProfile, type EvidenceManifest } from "@/lib/contract";
+import {
+  assuranceProfile,
+  evidenceManifest,
+  type AssuranceProfile,
+  type EvidenceManifest,
+  type VerifyReport,
+} from "@/lib/contract";
 import { parseJson } from "@/lib/schema";
 
-import { accept, acceptCompare, acceptVerify } from "./accept";
+import { accept, acceptCompare, acceptVerify, checkEvidence } from "./accept";
 import {
   EngineAbortedError,
   EngineBusyError,
@@ -163,20 +169,18 @@ export function loadProfile(signal?: AbortSignal): Promise<ProfileResult> {
   });
 }
 
-/**
- * Reads and cross-checks the evidence bundle of a frozen-contract run. The bundle
- * must describe exactly the config that was sent and the verdict that was accepted.
- */
-async function readEvidence(dir: string, config: string, verdict: string): Promise<EvidenceManifest | string> {
+/** Reads a frozen-contract run's evidence bundle and binds it to the accepted output. */
+async function readEvidence(
+  dir: string,
+  run: { config: string; stdout: string; report: VerifyReport },
+): Promise<EvidenceManifest | string> {
   let manifest: EvidenceManifest;
   try {
     manifest = parseJson(await readFile(path.join(dir, "manifest.json"), "utf8"), evidenceManifest);
   } catch (error) {
     return `the evidence manifest is missing or invalid (${(error as Error).message})`;
   }
-  if (manifest.config.sha256 !== sha256(config)) return "the evidence manifest describes a different config";
-  if (manifest.result !== verdict) return `the evidence manifest records ${manifest.result}, not ${verdict}`;
-  return manifest;
+  return checkEvidence(manifest, run) ?? manifest;
 }
 
 export function runVerify(body: Partial<VerifyRequest>, signal?: AbortSignal): Promise<VerifyResponse> {
@@ -208,7 +212,7 @@ export function runVerify(body: Partial<VerifyRequest>, signal?: AbortSignal): P
 
       let evidence: EvidenceManifest | null = null;
       if (spec.mode === "contract") {
-        const read = await readEvidence(evidenceDir, config, accepted.report.result);
+        const read = await readEvidence(evidenceDir, { config, stdout: result.stdout, report: accepted.report });
         if (typeof read === "string") {
           return { ok: false as const, stage: "protocol" as const, exitCode: accepted.exitCode, command, message: `Rejected: ${read}.` };
         }

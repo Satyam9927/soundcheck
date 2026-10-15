@@ -51,11 +51,17 @@ stopped=0
 
 # Only the containers start.sh names; images and volumes are untouched.
 for CONTAINER in soundcheck-web soundcheck-engine; do
-  if command -v docker >/dev/null 2>&1 &&
-    [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null)" = "true" ]; then
+  command -v docker >/dev/null 2>&1 || break
+  state="$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null || true)"
+  if [ "$state" = "true" ]; then
     info "Stopping container $CONTAINER"
     docker stop "$CONTAINER" >/dev/null
     stopped=1
+  fi
+  # The web container is started without --rm (so crash logs survive); remove it,
+  # running or crashed. It holds no volumes; images are left alone.
+  if [ -n "$state" ] && [ "$CONTAINER" = soundcheck-web ]; then
+    docker rm "$CONTAINER" >/dev/null 2>&1 || true
   fi
 done
 rm -f "$RUN_DIR/mode"

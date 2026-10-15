@@ -7,10 +7,13 @@
 // the same verdict as the document, and the document answers the question that
 // was asked. Anything else is a failure, never a verdict.
 
+import { createHash } from "node:crypto";
+
 import type { EngineFailure } from "@/lib/api";
 import {
   compareReport,
   repairReport,
+  type EvidenceManifest,
   type CompareReport,
   type RepairReport,
   type Verdict,
@@ -162,4 +165,31 @@ export function acceptCompare(
     answers: (report) =>
       report.comparison === comparison.plain ? null : `asked for ${comparison.plain}, got ${report.comparison}`,
   });
+}
+
+const digest = (text: string) => createHash("sha256").update(text).digest("hex");
+
+/**
+ * Binds a frozen-contract run's evidence bundle to the output that was accepted:
+ * the bundle must hash the exact config bytes sent, the exact report printed on
+ * stdout and the contract's canonical identity, and record the same verdict and
+ * assurance profile. Returns a problem, or null when everything agrees.
+ */
+export function checkEvidence(
+  manifest: EvidenceManifest,
+  run: { config: string; stdout: string; report: VerifyReport },
+): string | null {
+  if (manifest.config.sha256 !== digest(run.config)) return "the evidence manifest describes a different config";
+  if (manifest.result !== run.report.result) {
+    return `the evidence manifest records ${manifest.result}, not ${run.report.result}`;
+  }
+  if (manifest.report.sha256 !== digest(run.stdout)) return "the evidence manifest describes a different report";
+  if (!run.report.frozen_spec) return "the report carries no frozen spec to match the evidence against";
+  if (manifest.contract.sha256 !== digest(`${run.report.frozen_spec.canonical}\n`)) {
+    return "the evidence manifest describes a different contract";
+  }
+  if (run.report.assurance && manifest.assurance_profile.id !== run.report.assurance.profile) {
+    return `the evidence manifest names profile ${manifest.assurance_profile.id}, not ${run.report.assurance.profile}`;
+  }
+  return null;
 }
