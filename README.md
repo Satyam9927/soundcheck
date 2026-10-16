@@ -5,7 +5,7 @@
 <h1 align="center">Soundcheck</h1>
 
 <p align="center">
-  <strong>Solver-backed proof or counterexample for declarative security policy.</strong>
+  <strong>Proof before policy ships.</strong>
 </p>
 
 <p align="center">
@@ -17,29 +17,66 @@
 
 <p align="center">
   <a href="#quickstart">Quickstart</a> ·
+  <a href="#see-what-counts-as-a-repair">See an example</a> ·
+  <a href="#from-agent-feedback-to-ci">Agent workflows</a> ·
   <a href="docs/getting-started.md">Full walkthrough</a> ·
   <a href="#supported-model">Supported model</a> ·
-  <a href="#integrations">Integrations</a> ·
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
-Soundcheck checks a declarative policy against a precise security or functionality
-requirement. It either proves that no violating request exists in the supported
-model or returns a concrete, validated model-level counterexample in the policy's
-own vocabulary.
+Soundcheck is a formal verifier for declarative security configuration, built for
+AI-assisted changes. It helps platform and security teams check configurations
+proposed by humans or AI agents against independently reviewed access requirements,
+across every request represented by its supported target model.
 
-Today, the shipped connector verifies **decK-style Kong configurations** for Kong
-OSS 3.9.3 under the `traditional` and `traditional_compatible` HTTP routers.
-Soundcheck is independent of any AI model: it contains no model client, prompt,
-credentials, or nondeterministic repair logic. AI agents, CI jobs, and other
-tools all consume the same verifier results.
+Keep forbidden access blocked and required access available. Soundcheck returns
+a solver-backed proof, a checked model-level counterexample, or an explicit
+non-proof result. Agents can use that feedback to revise a candidate while the
+frozen verification interface keeps the requirement fixed.
+
+Today, Soundcheck verifies **decK-style Kong OSS 3.9.3 configurations** under the
+`traditional` and `traditional_compatible` HTTP routers. Kong is the first
+connector in a broader effort to verify declarative security policy across
+multiple systems. The verifier is AI-model agnostic.
 
 > [!IMPORTANT]
-> A `PROVED` result is relative to the asserted property or frozen contract,
-> Soundcheck's versioned target model, and explicit assumptions. It is not a
-> certification of every Kong deployment. Unsupported semantics fail closed as
-> `unknown`; conservative counterexamples are investigation candidates, not
-> guaranteed live-gateway reproductions.
+> A `PROVED` result applies to the stated property or frozen contract within
+> Soundcheck's versioned target model and explicit assumptions. It does not
+> certify a live deployment. Conservative counterexamples are investigation
+> candidates, not guaranteed target replays. Unsupported verification semantics
+> and inconclusive checks never produce a passing verdict.
+
+## See what counts as a repair
+
+Start with the access requirement. In the included
+[`admin-get.yaml`](bench/kong/contracts/admin-get.yaml) contract, anonymous `GET`
+requests whose paths begin with `/admin` must be denied, while authenticated
+requests in the same scope must remain allowed:
+
+```yaml
+schema_version: 1
+kind: authenticated-access
+scope:
+  path_prefix: /admin
+  method: GET
+```
+
+The policy owner reviews the contract independently of the candidate
+configuration. This contract distinguishes anonymous from authenticated requests;
+it does not specify administrator roles or individual user permissions.
+
+Keep that contract fixed and evaluate four configurations:
+
+| Candidate | Result | What the result means |
+| --- | --- | --- |
+| [Unprotected route](bench/kong/workflows/frozen-admin/unsafe.yaml) | `violated` | Anonymous access defeats the denial requirement in the model |
+| [Deny everyone](bench/kong/workflows/frozen-admin/deny-all.yaml) | `violated` | Removing all routes defeats the required-access clause |
+| [Add Key Auth](bench/kong/workflows/frozen-admin/repaired.yaml) | `proved` | Both denial and required access hold within the model and assumptions |
+| [Unmodeled active plugin](bench/pilot/examples/unsupported.yaml) | `unknown` | The plugin's effect cannot be verified within the supported semantics |
+
+These are minimal synthetic verifier fixtures, not complete deployable Kong
+configurations. After [setup](#quickstart), try the failure and repair with the
+same contract. Output is abridged; solver-selected request details may vary.
 
 ```console
 $ dune exec soundcheck -- verify \
@@ -48,52 +85,45 @@ $ dune exec soundcheck -- verify \
 VIOLATED authenticated-access
          Conservative model-level candidate, not a guaranteed target replay:
          anonymous request GET /admin ... may be ALLOWED via route "admin-get"
-$ echo $?
-3
+$ dune exec soundcheck -- verify \
+    bench/kong/workflows/frozen-admin/repaired.yaml \
+    --contract bench/kong/contracts/admin-get.yaml
+PROVED   authenticated-access
+         Anonymous requests must be denied and authenticated requests allowed for path prefix /admin, method GET
 ```
 
-## What ships today
+The first command exits `3`; the repaired configuration exits `0`. A separate
+[`compare --contract`](#configuration-comparison) check can also establish that
+selected modeled behavior outside the repair's scope is preserved. Ordinary
+`verify` does not perform that comparison.
 
-| Capability | Current support |
-| --- | --- |
-| Target | Kong OSS 3.9.3 decK YAML; `traditional` and `traditional_compatible` HTTP routing |
-| Verification | Six property templates and two strict frozen contract kinds |
-| Verdicts | `proved`, `violated`, `vacuous`, `inconsistent`, or `unknown` |
-| Comparisons | Decision, route/service, service target, and upstream URI equivalence |
-| Interfaces | CLI, schema-v9 JSON, GitHub annotations, frozen/manual MCP, and a reusable GitHub Action |
-| Audit output | SMT-LIB2 emission for single queries and complete evidence bundles for frozen contracts |
+## From agent feedback to CI
 
-Kubernetes RBAC, OPA/Rego, IAM, and app-level authorization are planned rather
-than implemented. A new connector may extend the shared decision IR when its
-target introduces a genuinely new concept; the core never depends on connectors.
+1. **Review the requirement.** A policy owner selects a supported contract kind,
+   reviews its scope and assumptions, and approves it separately from the
+   generated configuration.
+2. **Verify during repair.** Start [frozen MCP](#frozen-mcp) with that contract.
+   The agent submits candidate configuration, receives verification feedback,
+   and can revise and retry. The tool accepts no replacement property or scope.
+3. **Rerun in trusted CI.** The [GitHub Action](#github-action) independently
+   verifies the candidate against the contract from the approved event commit.
+   It does not trust an agent's earlier verdict. Only `proved` passes the
+   verification gate; required checks and deployment controls enforce the result.
 
-## Why Soundcheck
-
-Security policy is a good verification target because it has a formalizable
-question: for every request, should this principal be allowed to perform this
-action on this resource in this context?
-
-Tests sample that request space and remain essential for validating the model,
-but finite samples cannot establish the absence of every policy violation.
-Soundcheck instead lowers the policy to a decision model, combines it with the
-negation of the requested invariant, and asks Z3 whether a violating request
-exists. The reviewed contract and verifier remain independent of the
-probabilistic generator.
-
-This machinery is intentionally narrow. If the intended behavior cannot be
-written as a precise property, there is nothing meaningful for Soundcheck to
-prove.
+The verifier, contract selection, and CI workflow must remain outside the
+candidate's control. Frozen MCP restricts its verification interface; it is not
+a sandbox for an agent with permission to replace the server or workflow.
+Soundcheck supplies the verifier and adapters. Model clients, prompts,
+credentials, and repair orchestration remain in the external agent or caller.
 
 ## Quickstart
 
-Soundcheck currently builds from source. You need:
-
-- Git and Bash.
-- [opam](https://opam.ocaml.org/) with OCaml 5.0 or newer.
-- Dune 3.11 or newer and the `yaml` OCaml package.
-- The `z3` CLI on `PATH`. Z3 4.16.0 is the regression-tested baseline; other
-  versions may produce different timeout or `unknown` behavior. The pinned
-  binary is available from the [official Z3 4.16.0 release](https://github.com/Z3Prover/z3/releases/tag/z3-4.16.0).
+Soundcheck currently builds from source. You need Git, Bash,
+[opam](https://opam.ocaml.org/), OCaml 5.0 or newer, Dune 3.11 or newer, the `yaml`
+OCaml package, and the `z3` CLI on `PATH`. **Z3 4.16.0 is the regression-tested
+baseline**; other versions may produce different timeout or `unknown` behavior.
+See the [installation walkthrough](docs/getting-started.md#1-install-the-toolchain)
+for solver setup.
 
 ```sh
 git clone https://github.com/ph0smet/soundcheck.git
@@ -107,29 +137,38 @@ opam install . --deps-only --with-test
 dune build @all
 ```
 
-Verify the included repaired configuration against its reviewed contract. The
-`frozen-admin` files are minimal synthetic verifier fixtures, not complete
-deployable Kong configurations:
+Run the [example above](#see-what-counts-as-a-repair), then follow the
+[complete getting-started guide](docs/getting-started.md) to verify your own
+configuration, review a contract, inspect JSON or evidence, and connect an agent
+or CI job.
 
-```sh
-eval "$(opam env)"
-dune exec soundcheck -- verify \
-  bench/kong/workflows/frozen-admin/repaired.yaml \
-  --contract bench/kong/contracts/admin-get.yaml
-```
+## What ships today
 
-Abridged expected result:
+| Capability | Current support |
+| --- | --- |
+| Target | Kong OSS 3.9.3 decK YAML; `traditional` and `traditional_compatible` HTTP routing |
+| Verification | Six property templates and two parameterized frozen contract kinds |
+| Verdicts | `proved`, `violated`, `vacuous`, `inconsistent`, or `unknown` |
+| Comparisons | Decision, route/service, service target, and literal-path upstream URI equivalence, within their supported boundaries |
+| Interfaces | CLI, schema-v9 JSON, GitHub annotations, frozen/manual MCP, and a reusable GitHub Action |
+| Audit output | SMT-LIB2 emission for single queries and complete evidence bundles for frozen contracts |
 
-```text
-PROVED   authenticated-access
-         Anonymous requests must be denied and authenticated requests allowed for path prefix /admin, method GET
-         Assurance: kong-traditional-http-v11 (within_profile)
-```
+Additional gateways, Kubernetes RBAC, OPA/Rego, IAM, and app-level authorization
+are [future targets](#roadmap), not shipped connectors.
 
-The [complete getting-started guide](docs/getting-started.md) walks through an
-unsafe config, its repair, a deny-all non-repair, JSON output, evidence bundles,
-comparisons, MCP, and common failure modes. It reuses the repository's tested
-fixtures rather than maintaining duplicate examples.
+## What Soundcheck establishes
+
+Schema validation checks a document's structure. Request tests exercise selected
+cases. Soundcheck reasons symbolically about whether any request represented by
+its supported model violates a specified requirement. It analyzes existing
+target-native configuration alongside a separate contract; you keep the target's
+configuration format.
+
+The result concerns the stated requirement. It does not establish every security
+property of the configuration or replace runtime enforcement. Tests remain
+essential for checking that the implementation and target model behave as
+expected. If the intended behavior cannot be expressed as a precise supported
+property, Soundcheck cannot establish it.
 
 ## How it works
 
@@ -143,11 +182,12 @@ fixtures rather than maintaining duplicate examples.
      └──────── checked witness + config-level counterexample ┘
 ```
 
-1. **Parse and lower.** The Kong connector parses YAML, validates Soundcheck's
+1. **Fix the requirement.** A reviewed property or frozen contract identifies
+   the required behavior and its path, method, host, network scope, and
+   assumptions. Frozen contracts are loaded outside the repair loop.
+2. **Parse and lower.** The Kong connector parses YAML, validates Soundcheck's
    accepted fragment, and lowers supported target behavior into the shared
    decision IR. It is not a replacement for Kong's full schema validation.
-2. **Freeze the intent.** A reviewed contract identifies the invariant and its
-   exact path, method, host, network scope, and assumptions.
 3. **Encode the violation.** Soundcheck asks whether there exists a request that
    the policy allows but the contract forbids, or denies but the contract
    requires.
@@ -193,17 +233,67 @@ Input, output, and verification errors exit `1`; invalid command usage exits
 | `authenticated-access` | Paired safety + functionality | Are anonymous requests denied while authenticated requests remain definitely allowed in one scope? |
 | `network-restricted-access` | Paired safety + functionality | Are untrusted sources denied while authenticated requests inside a trusted IPv4 block remain definitely allowed? |
 
-Manual property flags are useful for exploration. A gate should use a strict,
-versioned contract loaded outside the repair loop. `--contract` rejects property
-and scope overrides, and every report carries the contract's normalized identity.
-See the shipped [`authenticated-access` contract](bench/kong/contracts/admin-get.yaml)
-and [`network-restricted-access` contract](bench/kong/contracts/internal-get.yaml).
+Manual property flags are useful for exploration. For a gate, choose one of the
+two supported frozen contract kinds:
+[`authenticated-access`](bench/kong/contracts/admin-get.yaml) or
+[`network-restricted-access`](bench/kong/contracts/internal-get.yaml). Each pairs
+denial with required access in an explicit scope; the public artifact format is
+not a general-purpose specification language.
 
-Paired contracts reject deny-all “repairs.” For example, the empty
-[`deny-all.yaml`](bench/kong/workflows/frozen-admin/deny-all.yaml) still violates
-the `must_allow` clause of the admin contract.
+Have the policy owner review the scope and assumptions, then load the strict,
+versioned artifact outside the repair loop. `--contract` rejects property and
+scope overrides, and every report carries the contract's normalized identity.
+Unknown artifact fields, versions, and kinds are rejected. Approval remains a
+workflow responsibility; parsing a contract does not establish that it was
+reviewed or captures all intended requirements.
 
 ## Integrations
+
+### Frozen MCP
+
+Start an MCP server with the reviewed contract fixed for its lifetime:
+
+```sh
+eval "$(opam env)"
+dune exec soundcheck -- mcp \
+  --contract bench/kong/contracts/admin-get.yaml
+```
+
+The frozen `verify` tool accepts configuration only. An agent may repair the
+configuration and retry; the interface rejects attempts to replace the property
+or scope. The caller must keep the server and its startup contract outside the
+agent's control. Running MCP without `--contract` remains a manual exploration
+mode with mutable requirements.
+
+### GitHub Action
+
+The composite Action reruns verification using the contract from the immutable
+PR base commit, or from the exact protected-default-branch push commit. It does
+not load the contract from the candidate checkout or accept an earlier agent
+verdict as evidence of success. Repository controls must establish approval of
+that contract.
+
+```yaml
+steps:
+  - uses: actions/checkout@v4
+  - uses: ph0smet/soundcheck@<reviewed-full-commit-sha>
+    with:
+      config: kong.yaml
+      contract: soundcheck-contract.yaml
+```
+
+Use a reviewed full commit SHA in a fresh, trusted job before candidate code
+runs. The caller workflow, fixed contract path, and Action SHA must not be
+candidate-controlled; `uses: ./` is only suitable for testing the Action. The
+adapter accepts `pull_request` and non-forced, non-deleted protected-default-branch
+push events and fails closed elsewhere.
+
+Required checks, branch protection, separate contract approval, and fresh-base
+reruns remain repository responsibilities. Soundcheck installs none of them.
+Pinning its SHA also leaves the setup Action, distro Z3 package, and resolved
+opam dependencies to review or lock separately. See the
+[integration walkthrough](docs/getting-started.md#10-put-soundcheck-in-a-loop-or-gate)
+for the full boundary.
 
 ### Stable JSON
 
@@ -221,58 +311,19 @@ dune exec soundcheck -- verify \
   --format json
 ```
 
-The report includes the verdict, property, assurance assessment, frozen-spec
-identity, failed clause, and checked counterexample. The CLI and MCP adapter
-share these report semantics; the GitHub Action uses the same verifier and exit
-codes with native workflow annotations.
-
-### Frozen MCP
-
-Start an MCP server with the reviewed contract fixed for its lifetime:
-
-```sh
-eval "$(opam env)"
-dune exec soundcheck -- mcp \
-  --contract bench/kong/contracts/admin-get.yaml
-```
-
-The frozen `verify` tool accepts configuration only. An agent may repair that
-configuration and retry, but it cannot replace the property or weaken its scope.
-Running MCP without `--contract` remains a manual exploration mode.
-
-### GitHub Action
-
-The composite Action reads the approved contract from the immutable PR base
-commit, or from the exact protected-default-branch push commit, rather than from
-the candidate checkout.
-
-```yaml
-steps:
-  - uses: actions/checkout@v4
-  - uses: ph0smet/soundcheck@<reviewed-full-commit-sha>
-    with:
-      config: kong.yaml
-      contract: soundcheck-contract.yaml
-```
-
-Use a reviewed full commit SHA in a fresh, trusted job before any candidate code
-runs. The caller workflow, fixed contract path, and Action SHA must not be
-candidate-controlled; `uses: ./` is only suitable for testing the Action and is
-not an approval boundary. The adapter accepts `pull_request` and non-forced,
-non-deleted protected-default-branch push events and fails closed elsewhere.
-Required checks, branch protection, separate contract approval, and fresh-base
-reruns are repository responsibilities; Soundcheck does not install them.
-Pinning Soundcheck by SHA does not fully pin the transitive supply chain: the
-setup Action, distro Z3 package, and resolved opam dependencies require their
-own review or locking where that assurance is needed.
+The CLI and MCP adapter share these report semantics. The GitHub Action uses
+the same verifier and exit codes with native workflow annotations.
 
 ### Configuration comparison
 
-Compare all modeled decisions, or select a stronger observation with
-`--mode route-service`, `--mode service-target`, or `--mode upstream-uri`.
-Binding the comparison to a
-contract also proves the replacement satisfies the frozen intent and preserves
-the selected behavior outside its scope.
+Compare configurations to check modeled Allow/Deny decisions, or select a
+stronger observation with `--mode route-service`, `--mode service-target`, or
+`--mode upstream-uri`. The last mode supports upstream URI transformation for
+literal paths; regex capture transformation remains outside its proof boundary.
+
+With `--contract`, comparison first verifies that the replacement satisfies the
+frozen requirement, then checks preservation of the selected modeled behavior
+outside the contract's scope. This is a separate check from ordinary `verify`.
 
 ```sh
 eval "$(opam env)"
@@ -295,20 +346,12 @@ multiple ordered obligations; `--evidence-dir` writes their complete schema-v1
 bundle with the normalized contract, assurance profile, report, every planned
 query, execution status, digests, and provenance.
 
-```sh
-mkdir -p evidence
-eval "$(opam env)"
-dune exec soundcheck -- verify \
-  bench/kong/workflows/frozen-admin/repaired.yaml \
-  --contract bench/kong/contracts/admin-get.yaml \
-  --evidence-dir evidence/run-001 \
-  --format json
-```
+Follow the [evidence walkthrough](docs/getting-started.md#8-retain-an-evidence-bundle)
+to create a bundle in a new destination. Evidence permits formula replay; it is
+not an independently checked UNSAT certificate or a proof of the parser, encoder,
+or target model. When unsupported semantics prevent obligation planning, the
+bundle records an unavailable plan rather than invented queries.
 
-The destination must not already exist. Evidence permits formula replay; it is
-not an independently checked UNSAT certificate or a proof of the parser,
-encoder, or target model. If unsupported input is rejected before obligation
-planning, the bundle records an unavailable plan rather than inventing queries.
 Treat bundles as potentially sensitive: they omit raw config text but contain
 the contract, report, formulas, witnesses or models, hashes, and operational
 identifiers. Review them before retention or sharing.
@@ -338,7 +381,9 @@ Important boundaries include:
 - Unknown active HTTP plugins and unsupported relationship or regex forms make
   the whole verification result `unknown`.
 - Authentication is a configuration-level guard model, not a proof of plugin
-  implementations, credential stores, or identity-provider availability.
+  implementations, credential stores, or identity-provider availability. It
+  distinguishes anonymous from authenticated requests, not individual user
+  permissions or administrator roles.
 - Rate-limit verification establishes structural plugin coverage, not live
   quota behavior, datastore health, or throughput.
 - Network contracts reason over the IPv4 client address supplied by Kong. The
@@ -357,62 +402,47 @@ result schema, a coverage percentage, or a completeness certificate.
 
 The repository keeps several kinds of evidence separate:
 
-- `bench/kong/cases/` contains 50 labeled regression cases with reviewed
-  expected results.
-- An independent finite refinement oracle checks
-  `must_allow ⊆ actual_allow ⊆ may_allow` across 91,200 worlds and includes
-  deliberate broken controls.
-- The semantic inventory tracks 42 assurance-profile features and their
-  remaining evidence gaps.
-- The pinned real-Kong harness executes 282 observations across both supported
-  router flavors: 160 exact, 52 conservative, and 70 unsupported-boundary
+- A [labeled regression corpus](bench/kong/cases/) with reviewed expected results.
+- An [independent finite refinement oracle](test/approximation_refinement_t.ml)
+  for `must_allow ⊆ actual_allow ⊆ may_allow`, including deliberately broken
+  controls.
+- A [semantic inventory](bench/kong/SEMANTIC-COVERAGE.md) linking profile features
+  to their source, regression, and target evidence, with explicit remaining gaps.
+- [Pinned real-Kong conformance](bench/kong/conformance/README.md) across both
+  supported router flavors, distinguishing exact, conservative, and unsupported
   observations.
 
 These are finite checks of the implementation and abstraction rules, not a
 universal proof that the target model matches every deployment.
 
-The fast gate requires `jq`. The full gate additionally requires Docker, a
-running daemon, and `curl`.
-
-```sh
-eval "$(opam env)"
-bash scripts/check.sh fast
-
-# Also run pinned Kong 3.9.3 conformance; requires Docker and curl.
-bash scripts/check.sh full
-```
-
-Solver-heavy tests and conformance runs are serialized because they share
-timeouts, container names, and ports. See the
-[conformance harness](bench/kong/conformance/README.md) and the experimental
-[synthetic pilot workflow](bench/pilot/README.md) for their exact claims.
-
-## Repository layout
-
-```text
-core/                 shared IR, properties, solver, witnesses, reports, evidence
-connectors/kong/      Kong parsing, semantic lowering, assurance, and lifting
-cli/                  verify, compare, profile, and mcp subcommands
-mcp/                  config-only frozen verification adapter
-ci/                   GitHub annotation formatting
-bench/                corpus, semantic inventory, conformance, and pilot fixtures
-test/                 regression, oracle, adapter, and acceptance tests
-docs/plans/           approved technical scope and acceptance evidence
-```
-
-Connectors depend on core; core never depends on connectors. Adapters remain
-thin wrappers over the same verification implementation.
+See [Contributing: Run the checks](CONTRIBUTING.md#run-the-checks) for local test
+commands, prerequisites, and serialization rules. The experimental
+[advisory evaluation workflow](bench/pilot/README.md) includes synthetic examples
+only; it does not establish production accuracy or autonomous repair success.
 
 ## Roadmap
 
-The immediate focus is trustworthy Kong-first verification: deeper semantic
-coverage, target conformance, small authorized deployment pilots, and usability
-feedback. Only public synthetic pilot examples ship today; no production-pilot
-or accuracy claim is implied.
+Soundcheck is building a common verification workflow for declarative security
+policy across API gateways, infrastructure authorization, and application access
+control. Kong is the first implementation. Future connectors will bring their
+own supported native formats, behavioral models, assumptions, and conformance
+evidence to the shared verification core.
 
-Additional connectors follow after the Kong verifier is ready for broader use.
-External agents and training systems may consume Soundcheck, but model clients
-and repair orchestration remain outside the verification core.
+- **Deepen Kong assurance and usability.** Expand semantic coverage and target
+  conformance, improve contract authoring and diagnostics, and evaluate useful
+  coverage through small authorized deployment pilots.
+- **Extend to more policy systems.** Additional gateways, Kubernetes RBAC,
+  OPA/Rego, IAM, and application authorization remain future targets. Connector
+  expansion follows Kong readiness and deployment feedback; each target needs
+  precise properties and independently justified semantics.
+- **Support external agent evaluation.** After verifier hardening, develop
+  repair benchmarks and structured feedback for external agents and training
+  systems. Model runtimes and repair orchestration remain outside the core.
+
+Connectors depend on the core, and adapters share its verification semantics.
+New targets may require extending the decision model. A common interface does
+not yet establish portable contracts or end-to-end security across interacting
+systems; those require their own models and evidence.
 
 ## Contributing
 
