@@ -1,11 +1,21 @@
 "use client";
 
-import { Ban, FileWarning, Hourglass, PlugZap, ShieldAlert, SlidersHorizontal, TerminalSquare } from "lucide-react";
+import {
+  AlertTriangle,
+  Ban,
+  FileWarning,
+  Hourglass,
+  PlugZap,
+  RotateCcw,
+  ShieldAlert,
+  SlidersHorizontal,
+  TerminalSquare,
+} from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 
 import type { EngineFailure } from "@/lib/api";
 
-import { CodeBlock, Eyebrow } from "../ui";
+import { Button, CodeBlock, Eyebrow } from "../ui";
 
 export function Running({ label }: { label: string }) {
   const [elapsed, setElapsed] = useState(0);
@@ -68,6 +78,28 @@ export function Failure({ failure }: { failure: EngineFailure }) {
       {failure.command && (
         <p className="font-mono text-2xs text-ink-3">$ {failure.command}</p>
       )}
+    </div>
+  );
+}
+
+/**
+ * Shown above a result whose inputs have since changed. The result still
+ * describes the previous inputs, so it must never read as current.
+ */
+export function StaleNotice({ onRerun, disabled }: { onRerun: () => void; disabled: boolean }) {
+  return (
+    <div
+      role="status"
+      className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-vacuous/40 bg-vacuous/10 px-3 py-2 text-[13px]"
+    >
+      <AlertTriangle className="size-4 shrink-0 text-vacuous" />
+      <span className="min-w-0 flex-1 text-ink">
+        The inputs changed after this result. It describes the previous inputs, not the current ones.
+      </span>
+      <Button size="sm" onClick={onRerun} disabled={disabled}>
+        <RotateCcw className="size-3.5" />
+        Re-run
+      </Button>
     </div>
   );
 }

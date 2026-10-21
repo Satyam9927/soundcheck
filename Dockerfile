@@ -91,7 +91,10 @@ RUN apt-get update \
 COPY --from=z3 /opt/z3 /opt/z3
 ENV PATH=/opt/z3/bin:$PATH
 COPY --from=engine /home/opam/src/_build/default/cli/main.exe /usr/local/bin/soundcheck
-RUN z3 -version && soundcheck profile kong --format json >/dev/null
+# Concurrency slots for dev-mode jobs (see docker/engine-slot.sh); needs flock and timeout.
+COPY --chmod=755 docker/engine-slot.sh /usr/local/bin/soundcheck-slot
+RUN z3 -version && soundcheck profile kong --format json >/dev/null \
+ && command -v flock >/dev/null && command -v timeout >/dev/null
 WORKDIR /work
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["sleep", "infinity"]

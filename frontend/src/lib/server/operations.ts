@@ -7,6 +7,7 @@ import {
   COMPARE_MODES,
   PROPERTY_IDS,
   type CompareMode,
+  type EngineIdentity,
   type CompareRequest,
   type CompareResponse,
   type EngineFailure,
@@ -24,6 +25,7 @@ import {
   type VerifyReport,
 } from "@/lib/contract";
 import { parseJson } from "@/lib/schema";
+import { shellCommand } from "@/lib/shell";
 
 import { accept, acceptCompare, acceptVerify, checkEvidence } from "./accept";
 import {
@@ -121,9 +123,7 @@ function propertyArgs(spec: PropertySpec): string[] {
 }
 
 function display(args: string[]) {
-  return ["soundcheck", ...args]
-    .map((arg) => (/^[\w./:@=-]+$/.test(arg) ? arg : `'${arg.replace(/'/g, `'\\''`)}'`))
-    .join(" ");
+  return shellCommand(["soundcheck", ...args]);
 }
 
 function guard<T extends { ok: boolean }>(fn: () => Promise<T>): Promise<T | EngineFailure> {
@@ -140,13 +140,30 @@ function guard<T extends { ok: boolean }>(fn: () => Promise<T>): Promise<T | Eng
     if (error instanceof EngineUnavailableError) {
       return { ok: false, stage: "engine", exitCode: null, message: error.message };
     }
+    if (error instanceof EngineChangedError) {
+      return { ok: false, stage: "protocol", exitCode: null, message: error.message };
+    }
     throw error;
   });
 }
 
-async function provenance(inputs: Record<string, string>, evidence: EvidenceManifest | null): Promise<RunProvenance> {
+class EngineChangedError extends Error {}
+
+/**
+ * The engine's identity for a run, taken before it started. If the executable or
+ * solver changed while it ran, no single identity describes the run, so it is
+ * refused rather than attributed to either.
+ */
+async function provenance(
+  before: EngineIdentity | null,
+  inputs: Record<string, string>,
+  evidence: EvidenceManifest | null,
+): Promise<RunProvenance> {
   const engine = await engineIdentity();
-  if (!engine) throw new EngineUnavailableError("The engine disappeared while running.");
+  if (!engine || !before) throw new EngineUnavailableError("The engine disappeared while running.");
+  if (engine.executableSha256 !== before.executableSha256 || engine.solverVersion !== before.solverVersion) {
+    throw new EngineChangedError("The engine or solver was replaced while this run was in progress. Nothing was verified; run it again.");
+  }
   return {
     inputs: Object.fromEntries(Object.entries(inputs).map(([name, content]) => [name, sha256(content)])),
     engine,
@@ -202,6 +219,7 @@ export function runVerify(body: Partial<VerifyRequest>, signal?: AbortSignal): P
         "json",
       ];
       const command = display(argv((name) => name));
+      const before = await engineIdentity();
       const result = await execEngine(argv((name) => paths[name] ?? evidenceDir), signal);
       const accepted = acceptVerify(
         result,
@@ -224,7 +242,7 @@ export function runVerify(body: Partial<VerifyRequest>, signal?: AbortSignal): P
         report: accepted.report,
         durationMs: result.durationMs,
         command,
-        provenance: await provenance(files, evidence),
+        provenance: await provenance(before, files, evidence),
       };
     });
   });
@@ -253,6 +271,7 @@ export function runCompare(body: Partial<CompareRequest>, signal?: AbortSignal):
         "json",
       ];
       const command = display(argv((name) => name));
+      const before = await engineIdentity();
       const result = await execEngine(argv((name) => paths[name]), signal);
       const accepted = acceptCompare(result, command, mode, contract !== undefined);
       if (!accepted.ok) return accepted;
@@ -262,7 +281,7 @@ export function runCompare(body: Partial<CompareRequest>, signal?: AbortSignal):
         report: accepted.report,
         durationMs: result.durationMs,
         command,
-        provenance: await provenance(files, null),
+        provenance: await provenance(before, files, null),
       };
     });
   });

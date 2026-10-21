@@ -71,6 +71,12 @@ command with `docker exec`, passing exit codes through. After changing OCaml cod
 `./start.sh --dev` again: it rebuilds and swaps only the engine container while the dev
 server keeps running.
 
+Concurrency is limited inside the container, where the work runs: each job holds one of
+`SOUNDCHECK_MAX_CONCURRENCY` slots (`docker/engine-slot.sh`) until its processes exit.
+Cancelling a request ends only the local `docker exec` client, so the web server's
+queue alone could not bound the solver jobs; the slots do. The bridge also signals a
+cancelled job inside the container when it can, so its slot frees promptly.
+
 Each engine call pays roughly 350 ms of `docker exec` overhead here, so the 212-check
 sample audit takes about 19 s in dev mode versus about 4 s in the production image.
 Running the dev server inside Docker was avoided on purpose: on Docker Desktop, file
@@ -194,10 +200,18 @@ detection rule in `src/lib/server/audit.ts`.
 
 The audit runs the exploratory presets (see Audit semantics) and an attached frozen
 contract. The paired properties describe intended functionality, which Soundcheck
-never infers from a config, so they run only from a frozen contract. Zips are extracted in memory: at most 25 MB
-uploaded, 2000 entries, 100 MB expanded and 512 KB per file; hidden files and
-`__MACOSX/` are ignored, and anything unreadable is listed as skipped with a reason
-(and counted as a coverage gap when it may be a config).
+never infers from a config, so they run only from a frozen contract.
+
+Zips are read strictly, in memory (`src/lib/server/zip.ts`), so the engine verifies
+exactly the bytes the uploader packed. An entry is accepted only when its actual
+decompressed bytes match both its declared size and its CRC-32, and limits apply to
+actual output while inflating. An archive with inconsistent headers, a size or
+checksum mismatch, overlapping or duplicate entries, encryption, ZIP64 or an
+unsupported compression method is refused as a whole. Limits: 25 MB uploaded, 2000
+entries, 100 MB expanded, 512 KB per file (larger files are listed as skipped, not
+read). Only macOS metadata (`__MACOSX/`, `.DS_Store`) is ignored; every other file,
+hidden or not, is classified and listed, and anything unreadable is skipped with a
+reason (a coverage gap when it may be a config).
 Both report formats are generated in the browser from the same report model.
 
 ## Safety

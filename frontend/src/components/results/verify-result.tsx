@@ -65,9 +65,11 @@ function Section({ title, aside, children }: { title: string; aside?: ReactNode;
 function CounterexampleView({ report, ce }: { report: VerifyReport; ce: Counterexample }) {
   const mustAllow = report.clause?.kind === "must_allow";
   const shadowing = ce.shadowed_route !== null;
-  const sourceMatters = ["admin-api-not-reachable", "network-restricted-access"].includes(report.property);
+  const conservative = report.assurance?.status === "conservative";
 
-  const steps: ReactNode[] = [<TraceStep key="req" label="Request" value={`${ce.action || "ANY"} ${ce.path}`} />];
+  const steps: ReactNode[] = [
+    <TraceStep key="req" label="Request" value={`${ce.action || "<any-method>"} ${ce.path}`} />,
+  ];
   if (ce.route) steps.push(<TraceStep key="route" label={shadowing ? "Served by route" : "Route"} value={ce.route} />);
   if (ce.service) steps.push(<TraceStep key="service" label="Service" value={ce.service} />);
   steps.push(
@@ -82,30 +84,41 @@ function CounterexampleView({ report, ce }: { report: VerifyReport; ce: Countere
   return (
     <Section
       title="Counterexample"
-      aside={<span className="text-2xs text-ink-3">Dashed values were left free by the solver</span>}
+      aside={<span className="text-2xs text-ink-3">Concrete values from the solver&rsquo;s witness</span>}
     >
       <p className="text-[13px] leading-relaxed text-ink-2">
         {mustAllow
           ? "An authenticated request inside the frozen scope that this config does not definitely allow. A deny-all config cannot pass as a repair."
           : shadowing
-            ? "A request the higher-ranked route serves and lets through, although the route written to handle it would have stopped it."
+            ? "A request that, in the modeled route selection, can be served and let through by one route although another matching route would have stopped it."
             : "A concrete request the config lets through that the property forbids."}
       </p>
-      <RequestLine request={ce} showSource={sourceMatters} />
+      <RequestLine request={ce} />
       <Trace steps={steps} />
       {shadowing && (
         <div className="flex gap-3 rounded-lg border border-line bg-surface-2 px-3.5 py-3 text-[13px] leading-relaxed">
           <ShieldAlert className="mt-0.5 size-4 shrink-0 text-vacuous" />
           <p className="text-ink-2">
-            Route <code className="font-mono text-ink">{ce.route}</code> outranks{" "}
-            <code className="font-mono text-ink">{ce.shadowed_route}</code>
+            In the modeled route selection, route <code className="font-mono text-ink">{ce.route}</code> can serve
+            this request instead of <code className="font-mono text-ink">{ce.shadowed_route}</code>
             {ce.shadowed_service && (
               <>
                 {" "}
                 (service <code className="font-mono text-ink">{ce.shadowed_service}</code>)
               </>
-            )}{" "}
-            for this request, so the stricter guard on the shadowed route never applies.
+            )}
+            , so the stricter guard on <code className="font-mono text-ink">{ce.shadowed_route}</code> is not
+            guaranteed to apply to it.
+          </p>
+        </div>
+      )}
+      {conservative && (
+        <div className="flex gap-3 rounded-lg border border-vacuous/40 bg-vacuous/10 px-3.5 py-3 text-[13px] leading-relaxed">
+          <ShieldAlert className="mt-0.5 size-4 shrink-0 text-vacuous" />
+          <p className="text-ink-2">
+            This config uses features the model over-approximates (see Assurance), for example unresolved route
+            order. The counterexample is a model-level candidate, not a guaranteed replay against Kong: confirm it on
+            the target before treating it as an exposure.
           </p>
         </div>
       )}

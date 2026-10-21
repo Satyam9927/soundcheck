@@ -1,6 +1,6 @@
 "use client";
 
-import { Play, RotateCcw } from "lucide-react";
+import { Play } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { PropertySpec, Sample, Spec, VerifyResponse } from "@/lib/api";
@@ -8,7 +8,7 @@ import { EMPTY_CONTRACT } from "@/lib/contract-yaml";
 
 import type { LineFlag } from "../code-editor";
 import { DocumentPanel } from "../document-panel";
-import { Failure, Idle, OfflineHint, Running } from "../results/states";
+import { Failure, Idle, OfflineHint, Running, StaleNotice } from "../results/states";
 import { VerifyOutcome } from "../results/verify-result";
 import { engineReady, useEngine } from "../shell/engine-status";
 import { Button, Kbd, PageHeader, Panel } from "../ui";
@@ -171,18 +171,8 @@ export function VerifyWorkspace({
           <SpecPanel state={spec} onChange={setSpec} contracts={contracts} />
           {specError && <p className="text-xs text-violated">{specError}</p>}
 
-          <Panel
-            title="Result"
-            actions={
-              stale && (
-                <Button size="sm" variant="ghost" onClick={() => void execute()} disabled={!ready}>
-                  <RotateCcw className="size-3.5" />
-                  Inputs changed, re-run
-                </Button>
-              )
-            }
-            bodyClassName="p-4"
-          >
+          <Panel title="Result" bodyClassName="p-4">
+            {stale && <StaleNotice onRerun={() => void execute()} disabled={!ready} />}
             <div className={stale ? "opacity-60 transition-opacity" : "transition-opacity"}>
               {run.status === "idle" &&
                 (ready ? (

@@ -24,7 +24,7 @@ set -Eeuo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FRONTEND="$ROOT/frontend"
-RUN_DIR="$ROOT/.run"
+RUN_DIR="${SOUNDCHECK_RUN_DIR:-$ROOT/.run}"
 PID_FILE="$RUN_DIR/frontend.pid"
 LOG_FILE="$RUN_DIR/frontend.log"
 IMAGE="${SOUNDCHECK_IMAGE:-soundcheck:local}"
@@ -139,14 +139,12 @@ native_path() {
   if [ "$WINDOWS" = 1 ]; then cygpath -w "$1"; else printf '%s' "$1"; fi
 }
 
-pid_alive() {
-  local pid="$1"
-  if [ "$WINDOWS" = 1 ]; then
-    tasklist //FI "PID eq $pid" 2>/dev/null | grep -q " $pid "
-  else
-    kill -0 "$pid" 2>/dev/null
-  fi
-}
+# pid_alive, owned and kill_tree: process ownership shared with stop.sh.
+# shellcheck source=scripts/launcher-common.sh
+. "$ROOT/scripts/launcher-common.sh"
+
+# Seconds to wait for the web UI; overridable for tests.
+READY_TIMEOUT="${SOUNDCHECK_READY_TIMEOUT:-90}"
 
 port_busy() {
   if [ "$WINDOWS" = 1 ]; then
@@ -216,7 +214,7 @@ docker_build() {
 wait_until_ready() {
   local alive_check="$1" url="http://localhost:$PORT" status second=0 live=0
   [ -t 1 ] && live=1
-  for second in $(seq 1 90); do
+  for second in $(seq 1 "$READY_TIMEOUT"); do
     if ! $alive_check; then
       [ "$live" = 1 ] && printf '\r\033[K'
       return 1
@@ -231,7 +229,7 @@ wait_until_ready() {
       return 0
     fi
     # Redrawn in place on a terminal; silent when output is piped or logged.
-    [ "$live" = 1 ] && printf '\r  %s %s%2ds of up to 90s%s ' "$(progress_bar "$second" 90)" "$C_DIM" "$second" "$C_OFF"
+    [ "$live" = 1 ] && printf '\r  %s %s%2ds of up to ${READY_TIMEOUT}s%s ' "$(progress_bar "$second" "$READY_TIMEOUT")" "$C_DIM" "$second" "$C_OFF"
     sleep 1
   done
   [ "$live" = 1 ] && printf '\r\033[K'
@@ -248,7 +246,9 @@ fi
 # Rerunning --dev during a dev session only refreshes the engine container, so
 # engine changes land without restarting the hot-reloading web server.
 REFRESH_ENGINE_ONLY=0
-if [ -f "$PID_FILE" ] && pid_alive "$(cat "$PID_FILE")"; then
+# A recorded PID counts only if it is still this checkout's web app; after a
+# reboot the same number may belong to an unrelated process.
+if [ -f "$PID_FILE" ] && owned "$(cat "$PID_FILE")"; then
   if [ "$RUN_MODE" = dev ] && [ "$(cat "$RUN_DIR/mode" 2>/dev/null)" = dev ]; then
     REFRESH_ENGINE_ONLY=1
   else
@@ -359,7 +359,8 @@ fi
 
 # --- web app (dev and native) ------------------------------------------------
 
-command -v node >/dev/null 2>&1 || fail "Node.js is required (v20 or newer)."
+NODE="${SOUNDCHECK_NODE:-node}"  # overridable for tests
+command -v "$NODE" >/dev/null 2>&1 || fail "Node.js is required (v20 or newer)."
 command -v npm >/dev/null 2>&1 || fail "npm is required."
 
 cd "$FRONTEND"
@@ -371,10 +372,12 @@ if [ ! -f "$STAMP" ] || [ package.json -nt "$STAMP" ] || [ package-lock.json -nt
   touch "$STAMP"
 fi
 
-NEXT="node_modules/next/dist/bin/next"
+# Launched by absolute path: that path in the command line is how stop.sh (and a
+# rerun of this script) recognise the processes this launcher owns.
+NEXT="$(native_path "$FRONTEND/node_modules/next/dist/bin/next")"
 if [ "$NEXT_MODE" = "prod" ]; then
   step "Building the web app for production"
-  node "$NEXT" build || fail "the production build failed (see the output above)."
+  "$NODE" "$NEXT" build || fail "the production build failed (see the output above)."
   ARGS=(start -H 127.0.0.1 -p "$PORT")
 else
   ARGS=(dev -H 127.0.0.1 -p "$PORT")
@@ -382,9 +385,17 @@ fi
 
 step "Starting the web app (next $([ "$NEXT_MODE" = prod ] && echo start || echo dev)) on port $PORT"
 export SOUNDCHECK_REPO="$(native_path "$ROOT")"
-nohup node "$NEXT" "${ARGS[@]}" >"$LOG_FILE" 2>&1 &
+nohup "$NODE" "$NEXT" "${ARGS[@]}" >"$LOG_FILE" 2>&1 &
 PID=$!
-if [ "$WINDOWS" = 1 ] && [ -r "/proc/$PID/winpid" ]; then
+if [ "$WINDOWS" = 1 ]; then
+  # Windows tools (tasklist, taskkill, stop.sh) need the Windows PID. Git Bash
+  # publishes it a moment after the launch, so wait for it rather than record
+  # the Git Bash PID, which those tools would treat as already gone.
+  for _ in $(seq 1 50); do
+    [ -r "/proc/$PID/winpid" ] && break
+    sleep 0.1
+  done
+  [ -r "/proc/$PID/winpid" ] || fail "could not determine the Windows PID of the web app (Git Bash pid $PID)."
   PID="$(cat "/proc/$PID/winpid")"
 fi
 echo "$PID" >"$PID_FILE"
@@ -403,5 +414,16 @@ if wait_until_ready native_alive; then
   exit 0
 fi
 tail -n 30 "$LOG_FILE" >&2 || true
+# Stop what this run started before forgetting it, so no orphan keeps the port.
+if owned "$PID"; then
+  info "Stopping the web app that failed to start (pid $PID)"
+  kill_tree "$PID"
+fi
 rm -f "$PID_FILE"
+if grep -q "EACCES" "$LOG_FILE" 2>/dev/null; then
+  if [ "$WINDOWS" = 1 ]; then
+    fail "port $PORT is reserved by Windows (see: netsh interface ipv4 show excludedportrange protocol=tcp). Pick another with --port N."
+  fi
+  fail "permission denied binding port $PORT. Pick another with --port N."
+fi
 fail "the web app did not become ready (log: $LOG_FILE)"

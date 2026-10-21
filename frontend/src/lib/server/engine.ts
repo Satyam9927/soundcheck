@@ -3,7 +3,7 @@ import "server-only";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -321,19 +321,53 @@ function fileSha256(file: string): Promise<string | null> {
   });
 }
 
-let cachedIdentity: { engine: Engine; identity: Promise<EngineIdentity> } | null = null;
+/**
+ * Identifies a file's current contents cheaply: rebuilding or replacing a binary
+ * at the same path changes at least one of these. Null when the file is absent.
+ */
+async function fingerprint(file: string | null): Promise<string | null> {
+  if (!file) return null;
+  try {
+    const info = await stat(file, { bigint: true });
+    return [info.dev, info.ino, info.size, info.mtimeNs, info.ctimeNs].join(":");
+  } catch {
+    return null;
+  }
+}
 
-/** Identifies the engine for provenance. Recomputed whenever detection changes. */
+/** The z3 executable the engine will find on PATH, as the OS would resolve it. */
+async function findOnPath(command: string): Promise<string | null> {
+  const names = process.platform === "win32" ? [`${command}.exe`, `${command}.cmd`, command] : [command];
+  for (const dir of (process.env.PATH ?? "").split(path.delimiter).filter(Boolean)) {
+    for (const name of names) {
+      const candidate = path.join(dir, name);
+      if (await exists(candidate)) return candidate;
+    }
+  }
+  return null;
+}
+
+let cachedIdentity: { key: string; identity: Promise<EngineIdentity> } | null = null;
+
+/**
+ * Identifies the engine for provenance. The cache is keyed by the engine choice
+ * and by fingerprints of the engine executable and z3, so a rebuild in place or
+ * a solver upgrade is noticed on the next call instead of reporting stale hashes.
+ */
 export async function engineIdentity(): Promise<EngineIdentity | null> {
   const engine = await resolveEngine();
   if (!engine) return null;
-  if (
-    !cachedIdentity ||
-    cachedIdentity.engine.command !== engine.command ||
-    cachedIdentity.engine.label !== engine.label
-  ) {
+  const solver = engine.source === "script" ? null : await findOnPath("z3");
+  const key = JSON.stringify([
+    engine.command,
+    engine.label,
+    await fingerprint(engine.executable),
+    solver,
+    await fingerprint(solver),
+  ]);
+  if (!cachedIdentity || cachedIdentity.key !== key) {
     cachedIdentity = {
-      engine,
+      key,
       identity: (async () => ({
         source: engine.source,
         label: engine.label,

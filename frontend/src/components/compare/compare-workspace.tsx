@@ -9,7 +9,7 @@ import { COMPARE_MODE_INFO } from "@/lib/domain";
 import { CodeEditor } from "../code-editor";
 import { DocumentPanel } from "../document-panel";
 import { CompareOutcome } from "../results/compare-result";
-import { Failure, Idle, OfflineHint, Running } from "../results/states";
+import { Failure, Idle, OfflineHint, Running, StaleNotice } from "../results/states";
 import { engineReady, useEngine } from "../shell/engine-status";
 import { Button, Eyebrow, Kbd, PageHeader, Panel, Segmented } from "../ui";
 
@@ -23,10 +23,11 @@ export interface ComparePreset {
   contract: string | null;
 }
 
+// Every result is bound to the snapshot of inputs it was computed from.
 type RunState =
   | { status: "idle" }
-  | { status: "running" }
-  | { status: "done"; response: CompareResponse };
+  | { status: "running"; key: string }
+  | { status: "done"; response: CompareResponse; key: string };
 
 export function CompareWorkspace({
   presets,
@@ -46,27 +47,40 @@ export function CompareWorkspace({
   const [activePreset, setActivePreset] = useState<string | null>(first?.id ?? null);
   const [run, setRun] = useState<RunState>({ status: "idle" });
   const resultRef = useRef<HTMLDivElement>(null);
+  const abort = useRef<AbortController | null>(null);
   const { status } = useEngine();
   const ready = engineReady(status);
   const canRun = ready && before.trim() && after.trim() && (!bound || contract.trim()) && run.status !== "running";
+  const inputKey = JSON.stringify({ before, after, mode, contract: bound ? contract : null });
+  const stale = run.status === "done" && run.key !== inputKey;
 
   const execute = useCallback(async () => {
-    setRun({ status: "running" });
+    // Supersede any request in flight: its answer would describe older inputs.
+    abort.current?.abort();
+    const controller = new AbortController();
+    abort.current = controller;
+    const key = inputKey;
+    setRun({ status: "running", key });
     resultRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     try {
       const response = await fetch("/api/compare", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ before, after, mode, contract: bound ? contract : undefined }),
+        signal: controller.signal,
       });
-      setRun({ status: "done", response: (await response.json()) as CompareResponse });
-    } catch {
+      const body = (await response.json()) as CompareResponse;
+      if (abort.current !== controller) return;
+      setRun({ status: "done", response: body, key });
+    } catch (error) {
+      if ((error as Error).name === "AbortError" || abort.current !== controller) return;
       setRun({
         status: "done",
         response: { ok: false, stage: "engine", exitCode: null, message: "The request to the web server failed." },
+        key,
       });
     }
-  }, [before, after, mode, bound, contract]);
+  }, [before, after, mode, bound, contract, inputKey]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -86,6 +100,8 @@ export function CompareWorkspace({
     setBound(Boolean(preset.contract));
     if (preset.contract) setContract(preset.contract);
     setActivePreset(preset.id);
+    abort.current?.abort();
+    abort.current = null;
     setRun({ status: "idle" });
   }
 
@@ -232,6 +248,8 @@ export function CompareWorkspace({
 
           <div ref={resultRef} className="min-w-0 scroll-mt-6">
             <Panel title="Result" bodyClassName="p-4">
+              {stale && <StaleNotice onRerun={() => void execute()} disabled={!ready} />}
+              <div className={stale ? "opacity-60 transition-opacity" : "transition-opacity"}>
               {run.status === "idle" &&
                 (ready ? (
                   <Idle eyebrow="Ready">
@@ -253,6 +271,7 @@ export function CompareWorkspace({
                 ) : (
                   <Failure failure={run.response} />
                 ))}
+              </div>
             </Panel>
           </div>
         </div>

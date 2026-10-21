@@ -42,7 +42,7 @@ function WitnessView({ witness, title }: { witness: Witness; title: string }) {
   return (
     <section className="space-y-2.5">
       <Eyebrow>{title}</Eyebrow>
-      <RequestLine request={witness.request} showSource={false} />
+      <RequestLine request={witness.request} />
       <div className="overflow-hidden rounded-lg border border-line">
         <table className="w-full table-fixed text-left text-[13px]">
           <thead className="bg-surface-2 text-2xs text-ink-3">

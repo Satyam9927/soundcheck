@@ -2,6 +2,7 @@ import type { PropertySpec, VerifyResponse } from "./api";
 import type { Verdict } from "./contract";
 import { formalStatement, humanize, propertyInfo } from "./domain";
 import type { GatewayId } from "./gateways";
+import { shellCommand } from "./shell";
 
 export interface AuditOptions {
   pathPrefix: string;
@@ -42,7 +43,11 @@ function presetAssumptions(spec: PropertySpec): string[] {
     case "no-anonymous-access":
       return [`Everything under ${spec.pathPrefix} must require authentication.`];
     case "admin-api-not-reachable":
-      return [`Only ${spec.trustedCidr} may reach the Kong Admin API.`];
+      // The property covers anonymous requests only; authenticated requests
+      // from outside the block are out of its scope and stay unchecked.
+      return [
+        `Anonymous requests from outside ${spec.trustedCidr} must not reach the Kong Admin API (authenticated requests are not checked).`,
+      ];
     case "rate-limit-on-public":
       return ["Every route reachable without authentication should be rate limited."];
     case "no-shadowed-routes":
@@ -285,10 +290,10 @@ export function describeResult(response: VerifyResponse): string {
       return report.reason || "No verdict.";
     case "violated": {
       if (!ce) return "Violated.";
-      const request = `${ce.principal} ${ce.action || "ANY"} ${ce.path}`;
+      const request = `${ce.principal} ${ce.action || "<any-method>"} ${ce.path}`;
       const where = [ce.route && `route "${ce.route}"`, ce.service && `service "${ce.service}"`].filter(Boolean).join(", ");
       if (ce.shadowed_route) {
-        return `${request} is served by ${where}, which shadows guarded route "${ce.shadowed_route}".`;
+        return `${request} can be served by ${where} in the modeled route selection instead of guarded route "${ce.shadowed_route}".`;
       }
       if (report.clause?.kind === "must_allow") {
         return `${request} is not definitely allowed (${report.clause.name}).`;
@@ -298,11 +303,13 @@ export function describeResult(response: VerifyResponse): string {
   }
 }
 
+/** The command that reproduces one check; every argument is shell-quoted. */
 export function reproduceCommand(file: AuditFile, check: AuditCheck): string {
-  const quoted = /^[\w./-]+$/.test(file.path) ? file.path : `'${file.path.replace(/'/g, `'\\''`)}'`;
-  if (!check.spec) return `soundcheck verify ${quoted} --contract contract.yaml --evidence-dir evidence`;
-  const args = ["--property", check.spec.property];
+  if (!check.spec) {
+    return shellCommand(["soundcheck", "verify", file.path, "--contract", "contract.yaml", "--evidence-dir", "evidence"]);
+  }
+  const args = ["soundcheck", "verify", file.path, "--property", check.spec.property];
   if (check.spec.pathPrefix) args.push("--path-prefix", check.spec.pathPrefix);
   if (check.spec.trustedCidr) args.push("--trusted-cidr", check.spec.trustedCidr);
-  return `soundcheck verify ${quoted} ${args.join(" ")}`;
+  return shellCommand(args);
 }

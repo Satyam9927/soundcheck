@@ -1,7 +1,5 @@
 import "server-only";
 
-import { unzipSync } from "fflate";
-
 import type { Spec } from "@/lib/api";
 import {
   auditChecks,
@@ -15,6 +13,7 @@ import { gateway as findGateway, type GatewayId } from "@/lib/gateways";
 import { loadSamples } from "./corpus";
 import { engineIdentity, sha256 } from "./engine";
 import { fieldProblem, loadProfile, runVerify } from "./operations";
+import { readZip, ZipError, type ZipEntry } from "./zip";
 
 export const AUDIT_LIMITS = {
   uploadBytes: 25 * 1024 * 1024,
@@ -28,7 +27,7 @@ const WORKERS = 4;
 
 export class AuditInputError extends Error {}
 
-interface Entry {
+export interface Entry {
   path: string;
   bytes: number;
   sha256: string | null;
@@ -84,35 +83,29 @@ function isZip(name: string, bytes: Uint8Array) {
   return name.toLowerCase().endsWith(".zip") || (bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04);
 }
 
-function extractZip(bytes: Uint8Array): Entry[] {
-  let entries = 0;
-  let declared = 0;
-  const oversized: Entry[] = [];
-  let files: Record<string, Uint8Array>;
-  try {
-    files = unzipSync(bytes, {
-      filter: (file) => {
-        const name = file.name;
-        if (name.endsWith("/") || name.startsWith("__MACOSX/") || /(^|\/)\./.test(name)) return false;
-        entries++;
-        declared += file.originalSize;
-        // Oversized entries are reported as skipped without being inflated.
-        if (file.originalSize > LIMITS.fileBytes) {
-          oversized.push({ path: name, bytes: file.originalSize, sha256: null, text: null });
-          return false;
-        }
-        return entries <= LIMITS.entries && declared <= LIMITS.extractedBytes;
-      },
-    });
-  } catch (error) {
-    throw new AuditInputError(`The zip could not be read: ${(error as Error).message}`);
-  }
-  if (entries > LIMITS.entries) throw new AuditInputError(`The zip has more than ${LIMITS.entries} files.`);
-  if (declared > LIMITS.extractedBytes) throw new AuditInputError("The zip expands to more than 100 MB.");
+/** macOS archive metadata: resource forks and Finder state, never configs. */
+function isArchiveMetadata(name: string) {
+  return name.startsWith("__MACOSX/") || name === ".DS_Store" || name.endsWith("/.DS_Store");
+}
 
-  return [...Object.entries(files).map(([path, data]) => entry(path, data)), ...oversized].sort((a, b) =>
-    a.path.localeCompare(b.path),
-  );
+export function extractZip(bytes: Uint8Array): Entry[] {
+  let read: ZipEntry[];
+  try {
+    read = readZip(bytes, { entries: LIMITS.entries, fileBytes: LIMITS.fileBytes, totalBytes: LIMITS.extractedBytes });
+  } catch (error) {
+    // An inconsistent archive is refused outright: auditing a different set of
+    // bytes than the uploader packed would make any verdict meaningless.
+    if (error instanceof ZipError) throw new AuditInputError(`The zip was rejected: ${error.message}.`);
+    throw error;
+  }
+  return read
+    .filter((item) => !isArchiveMetadata(item.path))
+    .map((item): Entry =>
+      item.status === "read"
+        ? entry(item.path, item.data)
+        : { path: item.path, bytes: item.declaredBytes, sha256: null, text: null },
+    )
+    .sort((a, b) => a.path.localeCompare(b.path));
 }
 
 async function sampleEntries(): Promise<Entry[]> {

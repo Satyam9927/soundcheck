@@ -14,30 +14,40 @@ export interface RequestShape {
   source_ip: string;
 }
 
-function Free({ children = "any" }: { children?: ReactNode }) {
+// Every value shown is the solver's concrete witness, as the engine reported
+// it. The only generalization is the engine's own: an empty method means the
+// witness holds for any method (it prints "<any-method>"). Nothing is labelled
+// unconstrained, because the frontend cannot know which values the model's
+// constraints pinned (an IP-restricted route, say, pins the source address).
+function AnyMethod() {
   return (
-    <span
-      className="rounded border border-dashed border-line-strong px-1 text-ink-3"
-      title="Unconstrained: the solver was free to pick any value."
-    >
-      {children}
+    <span className="text-ink-3" title="The engine reports this witness for any method.">
+      {"<any-method>"}
+    </span>
+  );
+}
+
+function Empty() {
+  return (
+    <span className="text-ink-3" title="This value is empty in the solver's witness.">
+      (empty)
     </span>
   );
 }
 
 /** A solver witness rendered as the HTTP request it stands for. */
-export function RequestLine({ request, showSource }: { request: RequestShape; showSource: boolean }) {
+export function RequestLine({ request }: { request: RequestShape }) {
   const anonymous = request.principal === "anonymous";
   return (
     <div className="overflow-hidden rounded-lg border border-line bg-surface-2">
       <div className="scrollbar-thin overflow-x-auto px-3.5 py-3 font-mono text-[12.5px] leading-6">
         <div className="whitespace-nowrap">
-          {request.action ? <span className="font-semibold text-ink">{request.action}</span> : <Free>ANY</Free>}{" "}
+          {request.action ? <span className="font-semibold text-ink">{request.action}</span> : <AnyMethod />}{" "}
           <span className="text-ink">{request.path || "/"}</span>{" "}
           <span className="text-ink-3">{request.scheme ? `${request.scheme.toUpperCase()}/1.1` : "HTTP/1.1"}</span>
         </div>
         <div className="whitespace-nowrap">
-          <span className="text-ink-3">Host:</span> {request.host ? <span className="text-ink-2">{request.host}</span> : <Free />}
+          <span className="text-ink-3">Host:</span> {request.host ? <span className="text-ink-2">{request.host}</span> : <Empty />}
         </div>
         {request.headers.map((header) => (
           <div key={`${header.name}:${header.value}`} className="whitespace-nowrap">
@@ -54,9 +64,9 @@ export function RequestLine({ request, showSource }: { request: RequestShape; sh
         <Meta label="Principal">
           <span className="text-ink">{request.principal}</span>
         </Meta>
-        <Meta label="Scheme">{request.scheme || <Free />}</Meta>
+        <Meta label="Scheme">{request.scheme || <Empty />}</Meta>
         {request.sni && <Meta label="SNI">{request.sni}</Meta>}
-        <Meta label="Source">{showSource ? request.source_ip : <Free>{request.source_ip}</Free>}</Meta>
+        <Meta label="Source">{request.source_ip}</Meta>
       </dl>
     </div>
   );

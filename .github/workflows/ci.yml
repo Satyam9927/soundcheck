@@ -215,6 +215,9 @@ jobs:
       - name: Build image (runs dune test and the frontend checks against the engine)
         run: docker build --build-arg RUN_TESTS=1 -t soundcheck:ci .
 
+      - name: Dev-mode engine capacity holds under cancellation
+        run: bash scripts/engine-slot-test.sh
+
       - name: CLI mode preserves verdict exit codes
         run: |
           set -euo pipefail
@@ -313,3 +316,6 @@ jobs:
           test "$status" -eq 1
           printf '%s' "$output" | grep -q 'error:'
           printf '%s' "$output" | grep -Eq 'Docker (daemon is not running|is not installed)'
+
+      - name: Launcher process ownership (start.sh / stop.sh)
+        run: '"$SOUNDCHECK_TEST_SHELL" scripts/launcher-test.sh'
