@@ -311,11 +311,18 @@ jobs:
           DOCKER_HOST: tcp://127.0.0.1:1
         run: |
           set -uo pipefail
-          output="$("$SOUNDCHECK_TEST_SHELL" start.sh --port 3999 2>&1)"; status=$?
+          # Actions runs bash with -e, which would abort on the expected non-zero
+          # exit before it could be checked; capture the status explicitly.
+          status=0
+          output="$("$SOUNDCHECK_TEST_SHELL" start.sh --port 3999 2>&1)" || status=$?
           printf '%s\n' "$output"
           test "$status" -eq 1
           printf '%s' "$output" | grep -q 'error:'
           printf '%s' "$output" | grep -Eq 'Docker (daemon is not running|is not installed)'
 
+      # Includes a real start/stop of the Next.js production server; Docker is
+      # stubbed throughout, so no container is touched.
       - name: Launcher process ownership (start.sh / stop.sh)
+        env:
+          SOUNDCHECK_TEST_REAL_NEXT: "1"
         run: '"$SOUNDCHECK_TEST_SHELL" scripts/launcher-test.sh'

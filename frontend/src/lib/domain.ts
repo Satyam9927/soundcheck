@@ -163,7 +163,7 @@ export const VERDICTS: Record<Verdict, OutcomeInfo> = {
     tone: "unknown",
     exitCode: 4,
     meaning:
-      "The config leaves the supported fragment. Soundcheck refuses to guess rather than report a false proof.",
+      "No verdict: unsupported semantics, a solver timeout or failure, or an answer that could not be validated. Soundcheck refuses to guess rather than report a false proof.",
   },
 };
 

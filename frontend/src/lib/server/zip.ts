@@ -12,7 +12,7 @@
 // descriptors. Rejected: ZIP64, encryption, multi-disk, other methods,
 // duplicate names, overlapping entries, and local/central header mismatches.
 
-import { Inflate } from "fflate";
+import { inflateRawSync } from "node:zlib";
 
 export class ZipError extends Error {}
 
@@ -79,31 +79,20 @@ function sameBytes(a: Uint8Array, b: Uint8Array) {
   return a.length === b.length && a.every((byte, index) => byte === b[index]);
 }
 
-/** Inflates `input`, failing as soon as the actual output exceeds `limit` bytes. */
+/**
+ * Inflates `input` to at most `limit` bytes. zlib stops producing output at the
+ * limit (in small chunks), so memory stays bounded by the limit however much the
+ * compressed data claims to expand; one byte of headroom detects an overrun.
+ */
 function inflateBounded(input: Uint8Array, limit: number, path: string): Uint8Array {
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  let ended = false;
-  const inflater = new Inflate((chunk, final) => {
-    total += chunk.length;
-    if (total > limit) throw new ZipError(`${path}: decompresses to more than its declared size`);
-    chunks.push(chunk);
-    if (final) ended = true;
-  });
   try {
-    inflater.push(input, true);
+    return inflateRawSync(input, { maxOutputLength: limit + 1, chunkSize: 16 * 1024 });
   } catch (error) {
-    if (error instanceof ZipError) throw error;
-    throw new ZipError(`${path}: corrupt compressed data (${(error as Error).message})`);
+    if ((error as NodeJS.ErrnoException).code === "ERR_BUFFER_TOO_LARGE") {
+      throw new ZipError(`${path}: decompresses to more than its declared size`);
+    }
+    throw new ZipError(`${path}: corrupt or truncated compressed data (${(error as Error).message})`);
   }
-  if (!ended) throw new ZipError(`${path}: compressed data ends early`);
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    out.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return out;
 }
 
 export function readZip(bytes: Uint8Array, limits: ZipLimits): ZipEntry[] {

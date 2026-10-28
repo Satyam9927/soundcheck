@@ -17,18 +17,46 @@ info() { printf '\033[1m==>\033[0m %s\n' "$*"; }
 . "$ROOT/scripts/launcher-common.sh"
 
 # Next.js can leave a worker bound to the port after its parent exits, so also
-# look at node processes listening on the recorded port. Only those that run
-# this checkout's Next.js are stopped; another app that took the port is not.
-port_node_pids() {
+# look at the processes listening on the recorded port. Only those that run this
+# checkout's Next.js (see owned) are stopped; another app that took the port is
+# not. On Linux and macOS no process-name filter is applied: Next.js renames its
+# server process, so it is no longer called "node" there.
+port_pids() {
   local port="$1"
   if [ "$WINDOWS" = 1 ]; then
     netstat -ano 2>/dev/null | grep -E "[:.]$port[[:space:]].*LISTENING" | awk '{print $NF}' | sort -u |
       while read -r pid; do
         tasklist //FI "PID eq $pid" //FO CSV //NH 2>/dev/null | grep -qi '^"node' && echo "$pid"
       done
+  elif [ -r /proc/net/tcp ]; then
+    # Linux: read the kernel's table directly. lsof is not used here: it skips
+    # processes whose renamed title ("next-server (v...") breaks its parsing of
+    # /proc/PID/stat, and it is often not installed.
+    proc_port_pids "$port"
   elif command -v lsof >/dev/null 2>&1; then
-    lsof -a -t -iTCP:"$port" -sTCP:LISTEN -c node 2>/dev/null || true
+    lsof -t -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | sort -u || true
   fi
+}
+
+# Linux: find the listening socket's inode in the kernel's table, then the
+# process holding that socket.
+proc_port_pids() {
+  local hex inodes pid fd target
+  hex="$(printf '%04X' "$1")"
+  # Columns: local_address (ip:PORT in hex), state (0A = LISTEN), inode (10th).
+  inodes="$(cat /proc/net/tcp /proc/net/tcp6 2>/dev/null |
+    awk -v port=":$hex" '$4 == "0A" && substr($2, length($2) - 4) == port { print $10 }' | sort -u)"
+  [ -n "$inodes" ] || return 0
+  for pid in /proc/[0-9]*; do
+    pid="${pid#/proc/}"
+    for fd in /proc/"$pid"/fd/*; do
+      target="$(readlink "$fd" 2>/dev/null)" || continue
+      case "$target" in "socket:["*"]")
+        target="${target#socket:[}"; target="${target%]}"
+        if printf '%s\n' "$inodes" | grep -qx "$target"; then echo "$pid"; break; fi ;;
+      esac
+    done
+  done
 }
 
 stopped=0
@@ -66,7 +94,7 @@ fi
 
 if [ -f "$PORT_FILE" ]; then
   PORT="$(cat "$PORT_FILE")"
-  for pid in $(port_node_pids "$PORT"); do
+  for pid in $(port_pids "$PORT"); do
     if owned "$pid"; then
       info "Stopping leftover Soundcheck process $pid on port $PORT"
       kill_tree "$pid"

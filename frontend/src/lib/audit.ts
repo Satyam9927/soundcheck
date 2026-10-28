@@ -291,14 +291,15 @@ export function describeResult(response: VerifyResponse): string {
     case "violated": {
       if (!ce) return "Violated.";
       const request = `${ce.principal} ${ce.action || "<any-method>"} ${ce.path}`;
+      const candidate = report.assurance?.status === "conservative" ? " (conservative model: a candidate to confirm against Kong)" : "";
       const where = [ce.route && `route "${ce.route}"`, ce.service && `service "${ce.service}"`].filter(Boolean).join(", ");
       if (ce.shadowed_route) {
-        return `${request} can be served by ${where} in the modeled route selection instead of guarded route "${ce.shadowed_route}".`;
+        return `${request} can be served by ${where} in the modeled route selection instead of guarded route "${ce.shadowed_route}"${candidate}.`;
       }
       if (report.clause?.kind === "must_allow") {
         return `${request} is not definitely allowed (${report.clause.name}).`;
       }
-      return `${request} is allowed${where ? ` via ${where}` : ""}${report.clause ? ` (${report.clause.name})` : ""}.`;
+      return `${request} is allowed in the model${where ? ` via ${where}` : ""}${report.clause ? ` (${report.clause.name})` : ""}${candidate}.`;
     }
   }
 }

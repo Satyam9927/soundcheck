@@ -80,6 +80,18 @@ describe("readZip", () => {
     expect(() => readZip(bytes, LIMITS)).toThrow(ZipError);
   });
 
+  it("stops inflating at the declared size instead of allocating the whole expansion (review repro)", () => {
+    // 32 MB of zeros compresses to a few KB; declare it as a 1 KB entry.
+    const bomb = zipSync({ "kong.yaml": [new Uint8Array(32 * 1024 * 1024), { level: 9 }] });
+    const { view, local, central } = headers(bomb);
+    view.setUint32(local + 22, 1024, true);
+    view.setUint32(central + 24, 1024, true);
+    const before = process.memoryUsage().arrayBuffers;
+    expect(() => readZip(bomb, LIMITS)).toThrow(/more than its declared size/);
+    // Output is capped while decompressing, so nothing near 32 MB is ever allocated.
+    expect(process.memoryUsage().arrayBuffers - before).toBeLessThan(4 * 1024 * 1024);
+  });
+
   it("enforces the total limit on actual output", () => {
     const big = "a".repeat(200_000);
     const bytes = zip({ "a.yaml": big, "b.yaml": big });
