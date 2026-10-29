@@ -9,33 +9,18 @@ on:
 
 jobs:
   build-and-test:
-    # The pinned Z3 archive below targets x64/glibc 2.39 (Ubuntu 24.04).
+    # This runner uses the pinned x64/glibc 2.39 Z3 archive (Ubuntu 24.04).
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
       - name: Install gate test dependency
-        run: sudo apt-get update && sudo apt-get install -y jq
+        run: sudo apt-get update && sudo apt-get install -y ca-certificates curl jq unzip
 
-      # Ubuntu's Z3 4.8.12 times out on regex-anchored-end within our unchanged
-      # 10-second solver deadline. Use the regression-tested release, not apt's
-      # distro version, and verify the archive before extracting or executing it.
+      # Keep CI and the reusable Action on the same checksummed solver release.
+      # Older distro solvers have exceeded the unchanged regression deadline.
       - name: Install Z3 (4.16.0)
-        env:
-          SOUNDCHECK_Z3_ARCHIVE: z3-4.16.0-x64-glibc-2.39
-          SOUNDCHECK_Z3_SHA256: 7288c49a5bd6dbafd7b0b0d1f65956b91672da24b08f09242919af159be3418e
-        run: |
-          set -euo pipefail
-          soundcheck_z3_dir="$(mktemp -d "$RUNNER_TEMP/soundcheck-z3.XXXXXX")"
-          curl --fail --location --silent --show-error --retry 3 \
-            --connect-timeout 10 --max-time 120 \
-            "https://github.com/Z3Prover/z3/releases/download/z3-4.16.0/${SOUNDCHECK_Z3_ARCHIVE}.zip" \
-            --output "$soundcheck_z3_dir/z3.zip"
-          printf '%s  %s\n' "$SOUNDCHECK_Z3_SHA256" "$soundcheck_z3_dir/z3.zip" \
-            | sha256sum --check --strict
-          unzip -q "$soundcheck_z3_dir/z3.zip" -d "$soundcheck_z3_dir"
-          "$soundcheck_z3_dir/$SOUNDCHECK_Z3_ARCHIVE/bin/z3" -version
-          printf '%s\n' "$soundcheck_z3_dir/$SOUNDCHECK_Z3_ARCHIVE/bin" >> "$GITHUB_PATH"
+        run: bash scripts/install-z3.sh
 
       - name: Set up OCaml
         uses: ocaml/setup-ocaml@v3
@@ -103,13 +88,12 @@ jobs:
           retention-days: 7
 
   action-smoke:
-    # This separately exercises the composite Action's distro-provided Z3;
-    # it is a frozen-workflow smoke test, not the full regression baseline.
+    # Exercise the composite Action's solver installation and frozen workflow.
     # Local uses: ./ tests this implementation, not a trusted production gate.
     # The Action deliberately rejects unprotected pushes. Its context rejection
     # is covered by the local gate tests on every build, including those pushes.
     if: github.event_name == 'pull_request' || github.ref_protected
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 

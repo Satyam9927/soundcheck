@@ -273,6 +273,10 @@ not load the contract from the candidate checkout or accept an earlier agent
 verdict as evidence of success. Repository controls must establish approval of
 that contract.
 
+Use an Ubuntu 24.04 or newer runner on x86-64 or ARM64.
+The Action installs checksum-verified Z3 4.16.0, shared with the regression CI,
+and checks the solver version in its opam environment before verification.
+
 ```yaml
 steps:
   - uses: actions/checkout@v4
@@ -290,7 +294,7 @@ push events and fails closed elsewhere.
 
 Required checks, branch protection, separate contract approval, and fresh-base
 reruns remain repository responsibilities. Soundcheck installs none of them.
-Pinning its SHA also leaves the setup Action, distro Z3 package, and resolved
+Pinning its SHA still leaves the setup Action, system packages, and resolved
 opam dependencies to review or lock separately. See the
 [integration walkthrough](docs/getting-started.md#10-put-soundcheck-in-a-loop-or-gate)
 for the full boundary.

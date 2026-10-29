@@ -96,6 +96,37 @@ let check_build_guard script =
   Sys.remove script_path;
   Sys.rmdir root
 
+let check_solver_guard script =
+  let root = Filename.temp_file "soundcheck-action-solver-" "" in
+  Sys.remove root;
+  Sys.mkdir root 0o700;
+  let opam = Filename.concat root "opam" in
+  let guard = Filename.concat root "guard.sh" in
+  write_file guard script;
+  write_file opam
+    "#!/bin/sh\n\
+     test \"$1\" = exec && test \"$2\" = \"--switch=$GITHUB_WORKSPACE\" && test \"$3\" = -- || exit 2\n\
+     shift 3\n\
+     case \"$*\" in\n\
+     'which z3') echo /fixture/z3 ;;\n\
+     'z3 -version') printf '%s\\n' \"$SOUNDCHECK_TEST_Z3_VERSION\" ;;\n\
+     *) exit 2 ;;\n\
+     esac\n";
+  if Sys.command ("chmod +x " ^ Filename.quote opam) <> 0 then fail "cannot prepare opam fixture";
+  List.iter
+    (fun (version, expected) ->
+      let command = Printf.sprintf
+          "PATH=%s GITHUB_WORKSPACE=%s SOUNDCHECK_TEST_Z3_VERSION=%s bash %s >/dev/null 2>&1"
+          (Filename.quote (root ^ ":" ^ Sys.getenv "PATH"))
+          (Filename.quote (root ^ "/workspace with spaces"))
+          (Filename.quote version) (Filename.quote guard) in
+      let status = Sys.command command in
+      if status <> expected then fail "solver guard %S: expected %d, got %d" version expected status)
+    [ "Z3 version 4.16.0 - 64 bit", 0;
+      "Z3 version 4.8.12 - 64 bit", 1 ];
+  List.iter Sys.remove [ opam; guard ];
+  Sys.rmdir root
+
 let () =
   if Array.length Sys.argv <> 2 then fail "expected action.yml path";
   let action =
@@ -137,6 +168,18 @@ let () =
   let setup_inputs = require_field "OCaml setup" "with" setup in
   List.iter (fun name -> require_false "OCaml setup" name setup_inputs)
     [ "opam-pin"; "cache"; "dune-cache" ];
+  let installer = step_named "Install Z3 (4.16.0)" in
+  if require_string "solver installation" "run" installer <>
+       "bash \"$GITHUB_ACTION_PATH/scripts/install-z3.sh\"" then
+    fail "solver installation must use the installer from the trusted Action source";
+  let solver_guard = step_named "Check regression solver" in
+  check_solver_guard (require_string "solver version guard" "run" solver_guard);
+  let index step =
+    List.mapi (fun i candidate -> candidate, i) steps |> List.assoc step
+  in
+  if index installer >= index solver_guard ||
+     index solver_guard >= index (step_named "Verify frozen contract") then
+    fail "the installed solver must be checked before frozen verification";
   List.iter
     (fun (name, command) ->
       let step = step_named name in
