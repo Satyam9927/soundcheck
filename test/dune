@@ -179,6 +179,12 @@
 
 (rule
  (alias runtest)
+ (deps install_z3_t.sh ../scripts/install-z3.sh)
+ (action
+  (run bash %{dep:install_z3_t.sh} %{dep:../scripts/install-z3.sh})))
+
+(rule
+ (alias runtest)
  (deps approved_contract_gate_t.sh ../scripts/verify-approved-contract.sh)
  (action
   (run bash %{dep:approved_contract_gate_t.sh}

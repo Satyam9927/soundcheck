@@ -276,9 +276,12 @@ test mechanism, not an approval boundary. The adapter accepts only
 reading the contract from the immutable event commit. Other events fail closed.
 Branch protection, required checks, separate contract review, and fresh-base
 reruns remain external responsibilities; the Action installs none of them.
-Pinning Soundcheck by SHA still leaves the setup Action, distro Z3 package, and
-resolved opam dependencies transitively unpinned; review or lock those
-separately when the deployment requires it.
+The Action uses Ubuntu 24.04 or newer on x86-64 or ARM64 and installs
+checksum-verified Z3 4.16.0, the same release used by regression CI.
+It also checks the solver version selected by its opam environment.
+Pinning Soundcheck by SHA still leaves the setup Action, system packages, and
+resolved opam dependencies transitively unpinned; review or lock those separately
+when the deployment requires it.
 
 ## Troubleshooting
 
